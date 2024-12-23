@@ -108,6 +108,27 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
     return np.array(img)
 
+def dividir_texto(texto, max_chars=30000):
+  logging.info(f"Dividiendo texto de {len(texto)} caracteres")
+  partes = []
+  texto = texto[:200000]
+
+  while texto:
+      if len(texto) <= max_chars:
+          partes.append(texto)
+          break
+      indice = texto[:max_chars].rfind('.')
+      if indice == -1:
+          indice = texto[:max_chars].rfind(' ')
+      if indice == -1:
+         partes.append(texto[:max_chars])
+         texto = texto[max_chars:].strip()
+      else:
+        partes.append(texto[:indice + 1])
+        texto = texto[indice + 1:].strip()
+  logging.info(f"Texto dividido en {len(partes)} partes")
+  return partes
+
 # Función de creación de video
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
@@ -131,10 +152,10 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             segmentos_texto.append(segmento_actual.strip())
             segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
-        
-        temp_dir = "/app/tmp" # Ruta absoluta de la carpeta temporal
+
+        temp_dir = "/app/tmp"
         if not os.path.exists(temp_dir):
-          os.makedirs(temp_dir) # Creamos el directorio si no existe
+           os.makedirs(temp_dir)
         
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
@@ -171,24 +192,25 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
 
-            temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3") # Ruta absoluta
+            temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
             archivos_temp.append(temp_filename)
             try:
                with open(temp_filename, "wb") as out:
                    out.write(response.audio_content)
-               os.chmod(temp_filename, 0o777)  # Aseguramos permisos de lectura y escritura al archivo
+               os.chmod(temp_filename, 0o777)
                logging.info(f"Archivo temporal creado: {temp_filename}")
             except Exception as e:
-              logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
-              raise
+               logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
+               raise
 
             audio_clip = None
             try:
-               audio_clip = AudioFileClip(temp_filename)
-               clips_audio.append(audio_clip)
+                audio_clip = AudioFileClip(temp_filename)
+                clips_audio.append(audio_clip)
             except Exception as e:
-               logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
-               raise
+                logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
+                raise
+
 
             duracion = audio_clip.duration
 
@@ -217,22 +239,22 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
 
         video_final = None
         try:
-            video_final = concatenate_videoclips(clips_finales, method="compose")
+           video_final = concatenate_videoclips(clips_finales, method="compose")
 
-            video_final.write_videofile(
-                nombre_salida,
-                fps=24,
-                codec='libx264',
-                audio_codec='aac',
-                preset='ultrafast',
-                threads=4
-            )
+           video_final.write_videofile(
+              nombre_salida,
+              fps=24,
+               codec='libx264',
+              audio_codec='aac',
+              preset='ultrafast',
+              threads=4
+          )
         except Exception as e:
-           logging.error(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
-           raise
+            logging.error(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
+            raise
         finally:
-             if video_final:
-               video_final.close()
+            if video_final:
+                video_final.close()
 
         for clip in clips_audio:
             try:
@@ -249,12 +271,12 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
-                  os.chmod(temp_file, 0o777)
-                  os.close(os.open(temp_file, os.O_RDONLY))
-                  os.remove(temp_file)
-                  logging.info(f"Archivo temporal eliminado: {temp_file}")
+                    os.chmod(temp_file, 0o777)
+                    os.close(os.open(temp_file, os.O_RDONLY))
+                    os.remove(temp_file)
+                    logging.info(f"Archivo temporal eliminado: {temp_file}")
             except Exception as e:
-                logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
+               logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
         return True, "Video generado exitosamente"
 
     except Exception as e:
@@ -288,26 +310,30 @@ def main():
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
     
-    if uploaded_file:
-        texto = uploaded_file.read().decode("utf-8")
-        nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
-        
-        if st.button("Generar Video"):
-            with st.spinner('Generando video...'):
-                nombre_salida_completo = f"{nombre_salida}.mp4"
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                if success:
-                  st.success(message)
-                  st.video(nombre_salida_completo)
-                  with open(nombre_salida_completo, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                    
-                  st.session_state.video_path = nombre_salida_completo
-                else:
-                  st.error(f"Error al generar video: {message}")
+    try:
+        if uploaded_file:
+           texto = uploaded_file.read().decode("utf-8")
+           nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
+           
+           if st.button("Generar Video"):
+               with st.spinner('Generando video...'):
+                   nombre_salida_completo = f"{nombre_salida}.mp4"
+                   success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                   if success:
+                       st.success(message)
+                       st.video(nombre_salida_completo)
+                       with open(nombre_salida_completo, 'rb') as file:
+                           st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                           
+                       st.session_state.video_path = nombre_salida_completo
+                   else:
+                        st.error(f"Error al generar video: {message}")
 
         if st.session_state.get("video_path"):
-            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
+             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
+    except Exception as e:
+       logging.error(f"Error en el main: {str(e)}")
+       st.error(f"Error inesperado: {str(e)}")
 
 if __name__ == "__main__":
     # Inicializar session state
