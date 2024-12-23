@@ -13,6 +13,7 @@ from io import BytesIO
 
 logging.basicConfig(level=logging.INFO)
 
+
 # Obtener credenciales de GCP de las variables de entorno
 try:
     credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
@@ -29,6 +30,7 @@ try:
 except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
+
 
 # Configuración de voces
 VOCES_DISPONIBLES = {
@@ -78,6 +80,7 @@ def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
 
     return np.array(img)
 
+
 # Nueva función para crear la imagen de suscripción
 def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
@@ -111,6 +114,7 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     return np.array(img)
 
 
+
 def dividir_texto(texto, max_chars=10000):
     logging.info(f"Dividiendo texto de {len(texto)} caracteres")
     texto = texto[:200000]
@@ -131,6 +135,7 @@ def dividir_texto(texto, max_chars=10000):
           texto = texto[indice + 1:].strip()
     logging.info(f"Texto dividido en {len(partes)} partes")
     return partes
+
 
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
