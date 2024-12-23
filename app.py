@@ -30,7 +30,6 @@ except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
 
-
 # Configuración de voces
 VOCES_DISPONIBLES = {
     'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
@@ -122,6 +121,16 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
     
     try:
         logging.info("Iniciando proceso de creación de video...")
+
+        # Asegurarse de que el directorio /tmp exista
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir, exist_ok=True)
+            logging.info(f"Directorio {temp_dir} creado")
+
+         # Dar permisos de escritura a /tmp si es necesario
+        os.chmod(temp_dir, 0o777)
+        logging.info(f"Permisos del directorio {temp_dir} establecidos a 777")
+
         frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
         client = texttospeech.TextToSpeechClient()
         
@@ -137,9 +146,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 segmentos_texto.append(segmento_actual.strip())
                 segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
-        
-        if not os.path.exists(temp_dir):
-           os.makedirs(temp_dir)
         
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
@@ -221,7 +227,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         clips_finales.append(subscribe_clip)
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
-        
+
+        logging.info(f"Escribiendo video a {output_path}")
+
         video_final.write_videofile(
             output_path, # Guarda el video en /tmp
             fps=24,
@@ -255,11 +263,25 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 logging.error(f"Error al eliminar archivo temporal de audio: {temp_file}")
         
         # Leer el archivo en memoria
-        with open(output_path, 'rb') as file:
-           video_bytes = file.read()
+        try:
+            logging.info(f"Leyendo archivo de video {output_path}")
+            with open(output_path, 'rb') as file:
+                video_bytes = file.read()
+        except Exception as e:
+            logging.error(f"Error al leer el archivo de video: {str(e)}")
+            raise
         
         os.chmod(output_path, 0o777) # Establecer permisos
+        logging.info(f"Permisos del archivo {output_path} establecidos a 777")
         
+        # Verificar tamaño del archivo
+        if os.path.exists(output_path):
+             file_size = os.path.getsize(output_path)
+             logging.info(f"Tamaño del archivo de video {output_path}: {file_size} bytes")
+        else:
+            logging.error(f"No se encontró el archivo de video {output_path}")
+            raise Exception(f"No se encontró el archivo de video {output_path}")
+
         return True, "Video generado exitosamente", video_bytes, output_path  # Devuelve los bytes y la ruta del video
         
     except Exception as e:
@@ -290,7 +312,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         return False, str(e), None, None
 
-
 def main():
     st.title("Creador de Videos Automático")
     
@@ -308,9 +329,12 @@ def main():
                     success, message, video_bytes, video_path = create_simple_video(texto, nombre_salida, voz_seleccionada, logo_url)
                     if success:
                       st.success(message)
-                      st.video(video_bytes) # Muestra el video directamente desde la memoria
-                      st.download_button(label="Descargar video",data=video_bytes,file_name=f"{nombre_salida}.mp4") # Descarga el video desde la memoria
-                    
+                      if video_bytes:
+                        st.video(video_bytes) # Muestra el video directamente desde la memoria
+                        st.download_button(label="Descargar video",data=video_bytes,file_name=f"{nombre_salida}.mp4") # Descarga el video desde la memoria
+                      else:
+                          st.error("No se pudo leer el contenido del video")
+
                       # Elimina el archivo del /tmp después de la descarga
                       try:
                            if video_path and os.path.exists(video_path):
@@ -336,10 +360,10 @@ def main():
                 except Exception as e:
                     logging.error(f"Error al limpiar el archivo mp4 {file_path} : {str(e)}")
 
-
     except Exception as e:
         logging.error(f"Error en la función main: {str(e)}")
         st.error(f"Error inesperado: {str(e)}")
+
 
 if __name__ == "__main__":
     # Inicializar session state
