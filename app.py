@@ -111,26 +111,27 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
     return np.array(img)
 
-def dividir_texto(texto, max_chars=10000):
-     logging.info(f"Dividiendo texto de {len(texto)} caracteres")
-     texto = texto[:200000]
-     partes = []
 
-     while texto:
-       if len(texto) <= max_chars:
+def dividir_texto(texto, max_chars=10000):
+    logging.info(f"Dividiendo texto de {len(texto)} caracteres")
+    texto = texto[:200000]
+    partes = []
+
+    while texto:
+      if len(texto) <= max_chars:
           partes.append(texto)
           break
-       indice = texto[:max_chars].rfind('.')
-       if indice == -1:
+      indice = texto[:max_chars].rfind('.')
+      if indice == -1:
           indice = texto[:max_chars].rfind(' ')
-       if indice == -1:
+      if indice == -1:
          partes.append(texto[:max_chars])
          texto = texto[max_chars:].strip()
-       else:
+      else:
           partes.append(texto[:indice + 1])
           texto = texto[indice + 1:].strip()
-     logging.info(f"Texto dividido en {len(partes)} partes")
-     return partes
+    logging.info(f"Texto dividido en {len(partes)} partes")
+    return partes
 # Función de creación de video
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
@@ -148,11 +149,11 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         segmentos_texto = []
         segmento_actual = ""
         for frase in frases:
-           if len(segmento_actual) + len(frase) < 300:
-             segmento_actual += " " + frase
-           else:
-             segmentos_texto.append(segmento_actual.strip())
-             segmento_actual = frase
+          if len(segmento_actual) + len(frase) < 300:
+            segmento_actual += " " + frase
+          else:
+            segmentos_texto.append(segmento_actual.strip())
+            segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
 
         temp_dir = "/app/tmp"
@@ -176,20 +177,20 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             max_retries = 3
 
             while retry_count <= max_retries:
-               try:
-                   response = client.synthesize_speech(
-                       input=synthesis_input,
-                       voice=voice,
-                       audio_config=audio_config
-                   )
-                   break
-               except Exception as e:
+              try:
+                response = client.synthesize_speech(
+                    input=synthesis_input,
+                    voice=voice,
+                    audio_config=audio_config
+                )
+                break
+              except Exception as e:
                   logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
                   if "429" in str(e):
-                     retry_count +=1
-                     time.sleep(2**retry_count)
+                    retry_count +=1
+                    time.sleep(2**retry_count)
                   else:
-                      raise Exception(f"Error al solicitar audio: {str(e)}")
+                    raise Exception(f"Error al solicitar audio: {str(e)}")
 
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
@@ -197,10 +198,10 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
             archivos_temp.append(temp_filename)
             try:
-              with open(temp_filename, "wb") as out:
-                 out.write(response.audio_content)
-              os.chmod(temp_filename, 0o777)
-              logging.info(f"Archivo temporal creado: {temp_filename}")
+               with open(temp_filename, "wb") as out:
+                   out.write(response.audio_content)
+               os.chmod(temp_filename, 0o777)
+               logging.info(f"Archivo temporal creado: {temp_filename}")
             except Exception as e:
               logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
               raise
@@ -210,8 +211,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 audio_clip = AudioFileClip(temp_filename)
                 clips_audio.append(audio_clip)
             except Exception as e:
-               logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
-               raise
+                logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
+                raise
 
 
             duracion = audio_clip.duration
@@ -241,20 +242,23 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
 
         video_final = None
         try:
-           video_final = concatenate_videoclips(clips_finales, method="compose")
+            logging.info(f"Iniciando la concatenación de los archivos con MoviePy")
+            video_final = concatenate_videoclips(clips_finales, method="compose")
+            logging.info(f"Archivos concatenados correctamente")
 
-           video_final.write_videofile(
-              nombre_salida,
-              fps=24,
-              codec='libx264',
-              audio_codec='aac',
-              preset='ultrafast',
-              threads=4,
-              progress_bar=False
+            logging.info(f"Iniciando la generación del archivo de vídeo {nombre_salida}")
+            video_final.write_videofile(
+               nombre_salida,
+               fps=24,
+               codec='libx264',
+               audio_codec='aac',
+               preset='ultrafast',
+               threads=4
            )
+            logging.info(f"Archivo de vídeo {nombre_salida} generado correctamente")
         except MemoryError as e:
-             logging.error(f"Error de memoria: {str(e)}")
-             raise Exception(f"Error de memoria: {str(e)}")
+            logging.error(f"Error de memoria: {str(e)}")
+            raise Exception(f"Error de memoria: {str(e)}")
         except Exception as e:
             logging.error(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
             raise Exception(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
@@ -301,40 +305,40 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
 
         for temp_file in archivos_temp:
-           try:
+            try:
                 if os.path.exists(temp_file):
                     os.close(os.open(temp_file, os.O_RDONLY))
                     os.remove(temp_file)
-           except:
+            except:
                 pass
 
         return False, str(e)
 
 def main():
     st.title("Creador de Videos Automático")
-
+    
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    
     try:
        if uploaded_file:
-            texto = uploaded_file.read().decode("utf-8")
-            nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
-
-            if st.button("Generar Video"):
-                with st.spinner('Generando video...'):
-                   nombre_salida_completo = f"{nombre_salida}.mp4"
-                   success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                   if success:
-                      st.success(message)
-                      st.video(nombre_salida_completo)
-                      with open(nombre_salida_completo, 'rb') as file:
-                        st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-
-                      st.session_state.video_path = nombre_salida_completo
-                   else:
-                       st.error(f"Error al generar video: {message}")
-
+           texto = uploaded_file.read().decode("utf-8")
+           nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
+           
+           if st.button("Generar Video"):
+               with st.spinner('Generando video...'):
+                    nombre_salida_completo = f"{nombre_salida}.mp4"
+                    success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                    if success:
+                        st.success(message)
+                        st.video(nombre_salida_completo)
+                        with open(nombre_salida_completo, 'rb') as file:
+                            st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                            
+                        st.session_state.video_path = nombre_salida_completo
+                    else:
+                        st.error(f"Error al generar video: {message}")
        if st.session_state.get("video_path"):
            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
