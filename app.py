@@ -116,8 +116,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
-    temp_dir = "/dev/shm"
+    temp_dir = "/tmp" # Usando /tmp como directorio temporal
     video_final = None # inicializa video_final a None
+    output_path = os.path.join(temp_dir, f"{nombre_salida}.mp4") # Ruta de salida del video en /tmp
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -222,7 +223,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
         video_final.write_videofile(
-            nombre_salida,
+            output_path, # Guarda el video en /tmp
             fps=24,
             codec='libx264',
             audio_codec='aac',
@@ -230,7 +231,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             threads=2
         )
         
-        
+        # Limpiar los clips
         for clip in clips_audio:
             try:
                 clip.close()
@@ -244,18 +245,26 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
         if video_final:
            video_final.close()
-            
+        
+        # Limpiar archivos temporales de audio
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
                   os.remove(temp_file)
             except:
-                pass
+                logging.error(f"Error al eliminar archivo temporal de audio: {temp_file}")
         
-        return True, "Video generado exitosamente"
+        # Leer el archivo en memoria
+        with open(output_path, 'rb') as file:
+           video_bytes = file.read()
+        
+        os.chmod(output_path, 0o777) # Establecer permisos
+        
+        return True, "Video generado exitosamente", video_bytes, output_path  # Devuelve los bytes y la ruta del video
         
     except Exception as e:
         logging.error(f"Error en la creación de video: {str(e)}")
+        # Limpiar los clips
         for clip in clips_audio:
             try:
                 clip.close()
@@ -267,18 +276,19 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 clip.close()
             except:
                 pass
-
+        
         if video_final:
            video_final.close()
-                
+            
+        # Limpiar archivos temporales de audio
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             except:
-                pass
+                logging.error(f"Error al eliminar archivo temporal de audio: {temp_file}")
         
-        return False, str(e)
+        return False, str(e), None, None
 
 
 def main():
@@ -295,21 +305,37 @@ def main():
             
             if st.button("Generar Video"):
                 with st.spinner('Generando video...'):
-                    nombre_salida_completo = f"{nombre_salida}.mp4"
-                    success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                    success, message, video_bytes, video_path = create_simple_video(texto, nombre_salida, voz_seleccionada, logo_url)
                     if success:
                       st.success(message)
-                      st.video(nombre_salida_completo)
-                      if os.path.exists(nombre_salida_completo):
-                        with open(nombre_salida_completo, 'rb') as file:
-                           st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                      else:
-                         st.error("No se encontro el archivo")
+                      st.video(video_bytes) # Muestra el video directamente desde la memoria
+                      st.download_button(label="Descargar video",data=video_bytes,file_name=f"{nombre_salida}.mp4") # Descarga el video desde la memoria
+                    
+                      # Elimina el archivo del /tmp después de la descarga
+                      try:
+                           if video_path and os.path.exists(video_path):
+                             os.remove(video_path)
+                             logging.info(f"Archivo temporal eliminado: {video_path}")
+                           else:
+                             logging.warning(f"No se pudo eliminar el archivo {video_path}, puede que no exista")
+                      except Exception as e:
+                           logging.error(f"Error al eliminar el archivo temporal de video: {str(e)}")
                     else:
                         st.error(f"Error al generar video: {message}")
 
         if st.session_state.get("video_path"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
+
+        # Limpiar archivos .mp4 del /tmp al finalizar, por seguridad
+        for filename in os.listdir('/tmp'):
+            if filename.endswith('.mp4'):
+                file_path = os.path.join('/tmp', filename)
+                try:
+                   os.remove(file_path)
+                   logging.info(f"Archivo mp4 limpiado al finalizar {file_path}")
+                except Exception as e:
+                    logging.error(f"Error al limpiar el archivo mp4 {file_path} : {str(e)}")
+
 
     except Exception as e:
         logging.error(f"Error en la función main: {str(e)}")
