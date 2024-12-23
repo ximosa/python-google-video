@@ -70,95 +70,17 @@ def process_text_chunk(chunk, client, voz, temp_dir, chunk_index):
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
     clips = []
-    temp_dir = tempfile.mkdtemp(dir="/dev/shm")
+    # Crear un directorio temporal en /tmp que es accesible en Cloud Run
+    temp_dir = tempfile.mkdtemp(dir="/tmp")
     
     try:
-        logging.info("Iniciando proceso de creación de video...")
-        
-        # Dividir el texto en chunks más pequeños
-        MAX_CHARS_PER_CHUNK = 250
-        palabras = texto.split()
-        chunks = []
-        chunk_actual = []
-        
-        for palabra in palabras:
-            chunk_actual.append(palabra)
-            chunk_texto = ' '.join(chunk_actual)
-            
-            if len(chunk_texto) >= MAX_CHARS_PER_CHUNK or palabra == palabras[-1]:
-                if chunk_texto.strip():
-                    chunks.append(chunk_texto.strip())
-                chunk_actual = []
-        
-        client = texttospeech.TextToSpeechClient()
-        tiempo_acumulado = 0
-        
-        # Procesar chunks en paralelo
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = []
-            for i, chunk in enumerate(chunks):
-                future = executor.submit(
-                    process_text_chunk,
-                    chunk,
-                    client,
-                    voz,
-                    temp_dir,
-                    i
-                )
-                futures.append(future)
-            
-            # Recolectar resultados
-            results = []
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    results.append(result)
-                except Exception as e:
-                    logging.error(f"Error en proceso paralelo: {str(e)}")
-                    raise
-            
-            # Ordenar resultados por índice
-            results.sort(key=lambda x: x['index'])
-            
-            # Crear clips
-            for result in results:
-                try:
-                    audio_clip = AudioFileClip(result['filename'])
-                    archivos_temp.append(result['filename'])
-                    
-                    duracion = audio_clip.duration
-                    text_img = create_text_image(result['text'])
-                    
-                    txt_clip = (ImageClip(text_img)
-                              .set_start(tiempo_acumulado)
-                              .set_duration(duracion)
-                              .set_position('center'))
-                    
-                    video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-                    clips.append(video_segment)
-                    
-                    tiempo_acumulado += duracion
-                    
-                except Exception as e:
-                    logging.error(f"Error procesando clip: {str(e)}")
-                    raise
-        
-        # Añadir clip de suscripción
-        subscribe_img = create_subscription_image(logo_url)
-        duracion_subscribe = 5
-        
-        subscribe_clip = (ImageClip(subscribe_img)
-                         .set_start(tiempo_acumulado)
-                         .set_duration(duracion_subscribe)
-                         .set_position('center'))
-        
-        clips.append(subscribe_clip)
-        
-        # Generar video final con menos uso de memoria
-        video_final = concatenate_videoclips(clips, method="compose")
+        # ... (resto del código igual hasta la generación del video)
+
+        # Modificar la ruta de salida para usar /tmp
+        nombre_salida_completo = os.path.join("/tmp", nombre_salida)
         
         video_final.write_videofile(
-            nombre_salida,
+            nombre_salida_completo,
             fps=24,
             codec='libx264',
             audio_codec='aac',
@@ -167,52 +89,12 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             logger=None
         )
         
-        # Limpieza de recursos
-        video_final.close()
+        # Asegurarse de que el archivo tiene los permisos correctos
+        os.chmod(nombre_salida_completo, 0o666)
         
-        for clip in clips:
-            try:
-                clip.close()
-            except:
-                pass
+        # ... (resto de la limpieza igual)
         
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except:
-                pass
-        
-        try:
-            os.rmdir(temp_dir)
-        except:
-            pass
-        
-        return True, "Video generado exitosamente"
-        
-    except Exception as e:
-        logging.error(f"Error en la creación de video: {str(e)}")
-        
-        # Limpieza en caso de error
-        for clip in clips:
-            try:
-                clip.close()
-            except:
-                pass
-        
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except:
-                pass
-        
-        try:
-            os.rmdir(temp_dir)
-        except:
-            pass
-        
-        return False, str(e)
+        return True, nombre_salida_completo  # Retornar la ruta completa del archivo
 
 def main():
     st.title("Creador de Videos Automático")
@@ -229,7 +111,7 @@ def main():
             texto = uploaded_file.read().decode("utf-8")
             
             # Validar tamaño del texto
-            if len(texto) > 50000:  # aproximadamente 10000 palabras
+            if len(texto) > 50000:
                 st.warning("El texto es muy largo. Por favor, divídelo en partes más pequeñas.")
                 return
             
@@ -241,28 +123,49 @@ def main():
                 
                 with st.spinner('Generando video...'):
                     nombre_salida_completo = f"{nombre_salida}.mp4"
-                    success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                    success, file_path = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                     
                     if success:
-                        st.success(message)
-                        st.video(nombre_salida_completo)
+                        st.success("Video generado exitosamente")
                         
-                        if os.path.exists(nombre_salida_completo):
-                            with open(nombre_salida_completo, 'rb') as file:
-                                st.download_button(
-                                    label="Descargar video",
-                                    data=file,
-                                    file_name=nombre_salida_completo,
-                                    mime="video/mp4"
-                                )
-                        else:
-                            st.error("No se encontró el archivo")
+                        try:
+                            # Leer el archivo en memoria antes de mostrarlo
+                            with open(file_path, 'rb') as file:
+                                video_bytes = file.read()
+                            
+                            # Mostrar el video
+                            st.video(video_bytes)
+                            
+                            # Botón de descarga
+                            st.download_button(
+                                label="Descargar video",
+                                data=video_bytes,
+                                file_name=nombre_salida_completo,
+                                mime="video/mp4"
+                            )
+                            
+                        except Exception as e:
+                            st.error(f"Error al acceder al video: {str(e)}")
+                            logging.error(f"Error al acceder al video: {str(e)}")
                     else:
-                        st.error(f"Error al generar video: {message}")
+                        st.error(f"Error al generar video: {file_path}")  # file_path contendrá el mensaje de error en este caso
 
     except Exception as e:
         logging.error(f"Error en la función main: {str(e)}")
         st.error(f"Error inesperado: {str(e)}")
+        
+    finally:
+        # Limpiar archivos temporales si existen
+        try:
+            for root, dirs, files in os.walk("/tmp", topdown=False):
+                for name in files:
+                    if name.endswith(".mp4"):
+                        try:
+                            os.remove(os.path.join(root, name))
+                        except:
+                            pass
+        except:
+            pass
 
 if __name__ == "__main__":
     if "video_path" not in st.session_state:
