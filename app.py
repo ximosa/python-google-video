@@ -29,7 +29,6 @@ try:
 except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
-    # st.stop()  No llamamos a st.stop para permitir más depuración
 
 # Configuración de voces
 VOCES_DISPONIBLES = {
@@ -132,11 +131,12 @@ def dividir_texto(texto, max_chars=10000):
           texto = texto[indice + 1:].strip()
     logging.info(f"Texto dividido en {len(partes)} partes")
     return partes
-# Función de creación de video
+
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
+    temp_dir = "/app/tmp"  # Definir temp_dir aquí
 
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -149,14 +149,14 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         segmentos_texto = []
         segmento_actual = ""
         for frase in frases:
-          if len(segmento_actual) + len(frase) < 300:
-            segmento_actual += " " + frase
-          else:
-            segmentos_texto.append(segmento_actual.strip())
-            segmento_actual = frase
+            if len(segmento_actual) + len(frase) < 300:
+                segmento_actual += " " + frase
+            else:
+                segmentos_texto.append(segmento_actual.strip())
+                segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
 
-        temp_dir = "/app/tmp"
+        
         if not os.path.exists(temp_dir):
            os.makedirs(temp_dir)
 
@@ -177,23 +177,24 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             max_retries = 3
 
             while retry_count <= max_retries:
-              try:
-                response = client.synthesize_speech(
-                    input=synthesis_input,
-                    voice=voice,
-                    audio_config=audio_config
-                )
-                break
-              except Exception as e:
-                  logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
-                  if "429" in str(e):
-                    retry_count +=1
-                    time.sleep(2**retry_count)
-                  else:
-                    raise Exception(f"Error al solicitar audio: {str(e)}")
+                try:
+                    response = client.synthesize_speech(
+                        input=synthesis_input,
+                        voice=voice,
+                        audio_config=audio_config
+                    )
+                    break
+                except Exception as e:
+                    logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                    if "429" in str(e):
+                      retry_count +=1
+                      time.sleep(2**retry_count)
+                    else:
+                      raise Exception(f"Error al solicitar audio: {str(e)}")
 
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
+
 
             temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
             archivos_temp.append(temp_filename)
@@ -230,7 +231,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             time.sleep(0.2)
 
         # Añadir clip de suscripción
-        subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
+        subscribe_img = create_subscription_image(logo_url)  # Usamos la función creada
         duracion_subscribe = 5
 
         subscribe_clip = (ImageClip(subscribe_img)
@@ -247,6 +248,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             logging.info(f"Archivos concatenados correctamente")
 
             logging.info(f"Iniciando la generación del archivo de vídeo {nombre_salida}")
+            # Eliminar el argumento progress_bar
             video_final.write_videofile(
                nombre_salida,
                fps=24,
@@ -281,10 +283,10 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
-                    os.chmod(temp_file, 0o777)
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
-                    logging.info(f"Archivo temporal eliminado: {temp_file}")
+                  os.chmod(temp_file, 0o777)
+                  os.close(os.open(temp_file, os.O_RDONLY))
+                  os.remove(temp_file)
+                  logging.info(f"Archivo temporal eliminado: {temp_file}")
             except Exception as e:
                 logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
 
@@ -305,14 +307,16 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
 
         for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
-            except:
-                pass
+          try:
+            if os.path.exists(temp_file):
+              os.close(os.open(temp_file, os.O_RDONLY))
+              os.remove(temp_file)
+          except:
+              pass
+
 
         return False, str(e)
+
 
 def main():
     st.title("Creador de Videos Automático")
