@@ -132,9 +132,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
         
-        temp_dir = "/app/tmp" # Definimos el directorio temporal
+        temp_dir = "/app/tmp" # Ruta absoluta de la carpeta temporal
 
-        if not os.path.exists(temp_dir): # Crea el directorio temporal si no existe
+        if not os.path.exists(temp_dir): # Crea el directorio si no existe
            os.makedirs(temp_dir)
 
         for i, segmento in enumerate(segmentos_texto):
@@ -172,10 +172,15 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
 
-            temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3") #Ruta absoluta del archivo de audio
+            temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3") # Ruta absoluta
             archivos_temp.append(temp_filename)
-            with open(temp_filename, "wb") as out:
-                out.write(response.audio_content)
+            try:
+                with open(temp_filename, "wb") as out:
+                    out.write(response.audio_content)
+                os.chmod(temp_filename, 0o777)  # Aseguramos permisos de lectura y escritura al archivo
+            except Exception as e:
+               logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
+               raise
 
             audio_clip = AudioFileClip(temp_filename)
             clips_audio.append(audio_clip)
@@ -218,18 +223,25 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         video_final.close()
 
         for clip in clips_audio:
-            clip.close()
+            try:
+                clip.close()
+            except:
+                pass
 
         for clip in clips_finales:
-            clip.close()
+            try:
+                clip.close()
+            except:
+                pass
 
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
-            except:
-                pass
+                  os.chmod(temp_file, 0o777)
+                  os.close(os.open(temp_file, os.O_RDONLY))
+                  os.remove(temp_file)
+            except Exception as e:
+                logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
 
         return True, "Video generado exitosamente"
 
@@ -257,18 +269,17 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
 
         return False, str(e)
 
-
 def main():
     st.title("Creador de Videos Automático")
-
+    
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
-
+    
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
         nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
-
+        
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 nombre_salida_completo = f"{nombre_salida}.mp4"
@@ -278,13 +289,13 @@ def main():
                   st.video(nombre_salida_completo)
                   with open(nombre_salida_completo, 'rb') as file:
                     st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-
+                    
                   st.session_state.video_path = nombre_salida_completo
                 else:
                   st.error(f"Error al generar video: {message}")
 
-    if st.session_state.get("video_path"):
-        st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
+        if st.session_state.get("video_path"):
+            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     # Inicializar session state
