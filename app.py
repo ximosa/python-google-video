@@ -10,97 +10,278 @@ import numpy as np
 import tempfile
 import requests
 from io import BytesIO
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import sys
 
 logging.basicConfig(level=logging.INFO)
 
-# ... (mantener la configuración de credenciales y voces igual)
+# Obtener credenciales de GCP de las variables de entorno
+try:
+    credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
+    if credentials_str:
+        credentials = json.loads(credentials_str)
+        logging.info("Credenciales de Google Cloud cargadas desde variables de entorno.")
+        with open("/app/google_credentials.json", "w") as f:
+            json.dump(credentials, f)
 
-def process_text_chunk(chunk, client, voz, temp_dir, chunk_index):
-    """Procesa un chunk individual de texto"""
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/app/google_credentials.json"
+        logging.info("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS establecida.")
+    else:
+        raise KeyError("Variable de entorno GOOGLE_CREDENTIALS no está configurada")
+except KeyError as e:
+    logging.error(f"Error al cargar credenciales: {str(e)}")
+    st.error(f"Error al cargar credenciales: {str(e)}")
+
+
+# Configuración de voces
+VOCES_DISPONIBLES = {
+    'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Journey-F': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Journey-O': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-A': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-B': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Neural2-C': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-D': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-E': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Polyglot-1': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Standard-A': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
+}
+
+# Función de creación de texto
+def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
+    img = Image.new('RGB', size, 'black')
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+
+    words = text.split()
+    lines = []
+    current_line = []
+
+    for word in words:
+        current_line.append(word)
+        test_line = ' '.join(current_line)
+        left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
+        if right > size[0] - 60:
+            current_line.pop()
+            lines.append(' '.join(current_line))
+            current_line = [word]
+    lines.append(' '.join(current_line))
+
+    total_height = len(lines) * line_height
+    y = (size[1] - total_height) // 2
+
+    for line in lines:
+        left, top, right, bottom = draw.textbbox((0, 0), line, font=font)
+        x = (size[0] - (right - left)) // 2
+        draw.text((x, y), line, font=font, fill="white")
+        y += line_height
+
+    return np.array(img)
+
+# Nueva función para crear la imagen de suscripción
+def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
+    img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+
+    # Cargar logo del canal
     try:
-        synthesis_input = texttospeech.SynthesisInput(text=chunk)
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="es-ES",
-            name=voz,
-            ssml_gender=VOCES_DISPONIBLES[voz]
-        )
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3
-        )
+        response = requests.get(logo_url)
+        response.raise_for_status()
+        logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
+        logo_img = logo_img.resize((100,100))
+        logo_position = (20,20)
+        img.paste(logo_img,logo_position,logo_img)
+    except Exception as e:
+        logging.error(f"Error al cargar el logo: {str(e)}")
         
-        retry_count = 0
-        max_retries = 3
+    text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
+    left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
+    x1 = (size[0] - (right1 - left1)) // 2
+    y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
+    draw.text((x1, y1), text1, font=font, fill="white")
+    
+    font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
+    text2 = "Dale like y activa la campana 🔔"
+    left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
+    x2 = (size[0] - (right2 - left2)) // 2
+    y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
+    draw.text((x2,y2), text2, font=font2, fill="white")
+
+    return np.array(img)
+
+# Función de creación de video
+def create_simple_video(texto, nombre_salida, voz, logo_url):
+    archivos_temp = []
+    clips_audio = []
+    clips_finales = []
+    temp_dir = "/dev/shm"
+    
+    try:
+        logging.info("Iniciando proceso de creación de video...")
+        frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
+        client = texttospeech.TextToSpeechClient()
         
-        while retry_count <= max_retries:
-            try:
+        tiempo_acumulado = 0
+        
+        # Agrupamos frases en segmentos
+        segmentos_texto = []
+        segmento_actual = ""
+        for frase in frases:
+            if len(segmento_actual) + len(frase) < 300:
+                segmento_actual += " " + frase
+            else:
+                segmentos_texto.append(segmento_actual.strip())
+                segmento_actual = frase
+        segmentos_texto.append(segmento_actual.strip())
+        
+        if not os.path.exists(temp_dir):
+           os.makedirs(temp_dir)
+        
+        for i, segmento in enumerate(segmentos_texto):
+            logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
+            
+            synthesis_input = texttospeech.SynthesisInput(text=segmento)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="es-ES",
+                name=voz,
+                ssml_gender=VOCES_DISPONIBLES[voz]
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
+            
+            retry_count = 0
+            max_retries = 3
+            
+            while retry_count <= max_retries:
+              try:
                 response = client.synthesize_speech(
                     input=synthesis_input,
                     voice=voice,
                     audio_config=audio_config
                 )
                 break
-            except Exception as e:
-                if "429" in str(e):
-                    retry_count += 1
+              except Exception as e:
+                  logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                  if "429" in str(e):
+                    retry_count +=1
                     time.sleep(2**retry_count)
-                else:
-                    raise
-        
-        if retry_count > max_retries:
-            raise Exception("Máximo número de reintentos alcanzado")
+                  else:
+                     raise Exception(f"Error al solicitar audio: {str(e)}")
             
-        temp_filename = os.path.join(temp_dir, f"temp_audio_{chunk_index}.mp3")
-        
-        with open(temp_filename, "wb") as out:
-            out.write(response.audio_content)
-        os.chmod(temp_filename, 0o777)
-        
-        return {
-            'index': chunk_index,
-            'filename': temp_filename,
-            'text': chunk
-        }
-        
-    except Exception as e:
-        logging.error(f"Error procesando chunk {chunk_index}: {str(e)}")
-        raise
+            if retry_count > max_retries:
+                raise Exception("Maximos intentos de reintento alcanzado")
+            
+            temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
+            archivos_temp.append(temp_filename)
+            try:
+              with open(temp_filename, "wb") as out:
+                 out.write(response.audio_content)
+              os.chmod(temp_filename, 0o777)
+              logging.info(f"Archivo temporal creado: {temp_filename}")
+            except Exception as e:
+                logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
+                raise
+                
+            audio_clip = None
+            try:
+                audio_clip = AudioFileClip(temp_filename)
+                clips_audio.append(audio_clip)
+            except Exception as e:
+                logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
+                raise
 
-def create_simple_video(texto, nombre_salida, voz, logo_url):
-    archivos_temp = []
-    clips = []
-    # Crear un directorio temporal en /tmp que es accesible en Cloud Run
-    temp_dir = tempfile.mkdtemp(dir="/tmp")
-    
-    try:
-        # ... (resto del código igual hasta la generación del video)
+            duracion = audio_clip.duration
+            
+            text_img = create_text_image(segmento)
+            txt_clip = (ImageClip(text_img)
+                      .set_start(tiempo_acumulado)
+                      .set_duration(duracion)
+                      .set_position('center'))
+            
+            video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+            clips_finales.append(video_segment)
+            
+            tiempo_acumulado += duracion
+            time.sleep(0.2)
 
-        # Modificar la ruta de salida para usar /tmp
-        nombre_salida_completo = os.path.join("/tmp", nombre_salida)
+        # Añadir clip de suscripción
+        subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
+        duracion_subscribe = 5
+
+        subscribe_clip = (ImageClip(subscribe_img)
+                        .set_start(tiempo_acumulado)
+                        .set_duration(duracion_subscribe)
+                        .set_position('center'))
+
+        clips_finales.append(subscribe_clip)
+        
+        video_final = concatenate_videoclips(clips_finales, method="compose")
         
         video_final.write_videofile(
-            nombre_salida_completo,
+            nombre_salida,
             fps=24,
             codec='libx264',
             audio_codec='aac',
             preset='ultrafast',
-            threads=2,
-            logger=None
+            threads=2
         )
         
-        # Asegurarse de que el archivo tiene los permisos correctos
-        os.chmod(nombre_salida_completo, 0o666)
         
-        # ... (resto de la limpieza igual)
+        for clip in clips_audio:
+            try:
+                clip.close()
+            except:
+                pass
         
-        return True, nombre_salida_completo  # Retornar la ruta completa del archivo
+        for clip in clips_finales:
+            try:
+                clip.close()
+            except:
+                pass
+        if video_final:
+           video_final.close()
+            
+        for temp_file in archivos_temp:
+            try:
+                if os.path.exists(temp_file):
+                  os.remove(temp_file)
+            except:
+                pass
+        
+        return True, "Video generado exitosamente"
+        
+    except Exception as e:
+        logging.error(f"Error en la creación de video: {str(e)}")
+        for clip in clips_audio:
+            try:
+                clip.close()
+            except:
+                pass
+                
+        for clip in clips_finales:
+            try:
+                clip.close()
+            except:
+                pass
+
+        if video_final:
+           video_final.close()
+                
+        for temp_file in archivos_temp:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except:
+                pass
+        
+        return False, str(e)
+
 
 def main():
     st.title("Creador de Videos Automático")
-    
-    # Aumentar límite de tamaño de archivo
-    st.set_page_config(layout="wide")
     
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
@@ -109,65 +290,32 @@ def main():
     try:
         if uploaded_file:
             texto = uploaded_file.read().decode("utf-8")
-            
-            # Validar tamaño del texto
-            if len(texto) > 50000:
-                st.warning("El texto es muy largo. Por favor, divídelo en partes más pequeñas.")
-                return
-            
             nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
             
             if st.button("Generar Video"):
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
                 with st.spinner('Generando video...'):
                     nombre_salida_completo = f"{nombre_salida}.mp4"
-                    success, file_path = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                    
+                    success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                     if success:
-                        st.success("Video generado exitosamente")
-                        
-                        try:
-                            # Leer el archivo en memoria antes de mostrarlo
-                            with open(file_path, 'rb') as file:
-                                video_bytes = file.read()
-                            
-                            # Mostrar el video
-                            st.video(video_bytes)
-                            
-                            # Botón de descarga
-                            st.download_button(
-                                label="Descargar video",
-                                data=video_bytes,
-                                file_name=nombre_salida_completo,
-                                mime="video/mp4"
-                            )
-                            
-                        except Exception as e:
-                            st.error(f"Error al acceder al video: {str(e)}")
-                            logging.error(f"Error al acceder al video: {str(e)}")
+                      st.success(message)
+                      st.video(nombre_salida_completo)
+                      if os.path.exists(nombre_salida_completo):
+                        with open(nombre_salida_completo, 'rb') as file:
+                           st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                      else:
+                         st.error("No se encontro el archivo")
                     else:
-                        st.error(f"Error al generar video: {file_path}")  # file_path contendrá el mensaje de error en este caso
+                        st.error(f"Error al generar video: {message}")
+
+        if st.session_state.get("video_path"):
+            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
     except Exception as e:
         logging.error(f"Error en la función main: {str(e)}")
         st.error(f"Error inesperado: {str(e)}")
-        
-    finally:
-        # Limpiar archivos temporales si existen
-        try:
-            for root, dirs, files in os.walk("/tmp", topdown=False):
-                for name in files:
-                    if name.endswith(".mp4"):
-                        try:
-                            os.remove(os.path.join(root, name))
-                        except:
-                            pass
-        except:
-            pass
 
 if __name__ == "__main__":
+    # Inicializar session state
     if "video_path" not in st.session_state:
         st.session_state.video_path = None
     main()
