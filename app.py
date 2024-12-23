@@ -1,3 +1,4 @@
+import asyncio
 import streamlit as st
 import os
 import json
@@ -110,8 +111,7 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
     return np.array(img)
 
-
-def dividir_texto(texto, max_chars=10000):
+def dividir_texto(texto, max_chars=500):
     logging.info(f"Dividiendo texto de {len(texto)} caracteres")
     texto = texto[:200000]
     partes = []
@@ -131,18 +131,46 @@ def dividir_texto(texto, max_chars=10000):
           texto = texto[indice + 1:].strip()
     logging.info(f"Texto dividido en {len(partes)} partes")
     return partes
+async def synthesize_segment(client, segmento, voz):
+    synthesis_input = texttospeech.SynthesisInput(text=segmento)
+    voice = texttospeech.VoiceSelectionParams(
+        language_code="es-ES",
+        name=voz,
+        ssml_gender=VOCES_DISPONIBLES[voz]
+    )
+    audio_config = texttospeech.AudioConfig(
+        audio_encoding=texttospeech.AudioEncoding.MP3
+    )
+    retry_count = 0
+    max_retries = 3
+    while retry_count <= max_retries:
+        try:
+             response = await asyncio.to_thread(client.synthesize_speech,
+                        input=synthesis_input,
+                        voice=voice,
+                        audio_config=audio_config)
+             return response
+        except Exception as e:
+            logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+            if "429" in str(e):
+                retry_count +=1
+                await asyncio.sleep(2**retry_count)
+            else:
+                raise Exception(f"Error al solicitar audio: {str(e)}")
+    raise Exception("Maximos intentos de reintento alcanzado")
 
-def create_simple_video(texto, nombre_salida, voz, logo_url):
+
+async def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
-    temp_dir = "/app/tmp"  # Definir temp_dir aquí
+    temp_dir = "/dev/shm"
 
     try:
         logging.info("Iniciando proceso de creación de video...")
         frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
         client = texttospeech.TextToSpeechClient()
-
+        
         tiempo_acumulado = 0
 
         # Agrupamos frases en segmentos
@@ -160,42 +188,17 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         if not os.path.exists(temp_dir):
            os.makedirs(temp_dir)
 
+        tasks = []
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
+            task = asyncio.create_task(synthesize_segment(client, segmento, voz))
+            tasks.append(task)
+        
+        audio_responses = await asyncio.gather(*tasks)
+        
 
-            synthesis_input = texttospeech.SynthesisInput(text=segmento)
-            voice = texttospeech.VoiceSelectionParams(
-                language_code="es-ES",
-                name=voz,
-                ssml_gender=VOCES_DISPONIBLES[voz]
-            )
-            audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3
-            )
-
-            retry_count = 0
-            max_retries = 3
-
-            while retry_count <= max_retries:
-                try:
-                    response = client.synthesize_speech(
-                        input=synthesis_input,
-                        voice=voice,
-                        audio_config=audio_config
-                    )
-                    break
-                except Exception as e:
-                    logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
-                    if "429" in str(e):
-                      retry_count +=1
-                      time.sleep(2**retry_count)
-                    else:
-                      raise Exception(f"Error al solicitar audio: {str(e)}")
-
-            if retry_count > max_retries:
-                raise Exception("Maximos intentos de reintento alcanzado")
-
-
+        for i, response in enumerate(audio_responses):
+            
             temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
             archivos_temp.append(temp_filename)
             try:
@@ -218,7 +221,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
 
             duracion = audio_clip.duration
 
-            text_img = create_text_image(segmento)
+            text_img = create_text_image(segmentos_texto[i])
             txt_clip = (ImageClip(text_img)
                       .set_start(tiempo_acumulado)
                       .set_duration(duracion)
@@ -255,7 +258,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                codec='libx264',
                audio_codec='aac',
                preset='ultrafast',
-               threads=4
+               threads=2
            )
             logging.info(f"Archivo de vídeo {nombre_salida} generado correctamente")
         except MemoryError as e:
@@ -332,14 +335,15 @@ def main():
            if st.button("Generar Video"):
                with st.spinner('Generando video...'):
                     nombre_salida_completo = f"{nombre_salida}.mp4"
-                    success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                    success, message = asyncio.run(create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url))
                     if success:
                         st.success(message)
                         st.video(nombre_salida_completo)
-                        with open(nombre_salida_completo, 'rb') as file:
-                            st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                            
-                        st.session_state.video_path = nombre_salida_completo
+                        if os.path.exists(nombre_salida_completo):
+                            with open(nombre_salida_completo, 'rb') as file:
+                                st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                        else:
+                           st.error("No se encontro el archivo")
                     else:
                         st.error(f"Error al generar video: {message}")
        if st.session_state.get("video_path"):
