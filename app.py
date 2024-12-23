@@ -133,10 +133,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         segmentos_texto.append(segmento_actual.strip())
         
         temp_dir = "/app/tmp" # Ruta absoluta de la carpeta temporal
-
-        if not os.path.exists(temp_dir): # Crea el directorio si no existe
-           os.makedirs(temp_dir)
-
+        if not os.path.exists(temp_dir):
+          os.makedirs(temp_dir) # Creamos el directorio si no existe
+        
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
 
@@ -175,15 +174,22 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3") # Ruta absoluta
             archivos_temp.append(temp_filename)
             try:
-                with open(temp_filename, "wb") as out:
-                    out.write(response.audio_content)
-                os.chmod(temp_filename, 0o777)  # Aseguramos permisos de lectura y escritura al archivo
+               with open(temp_filename, "wb") as out:
+                   out.write(response.audio_content)
+               os.chmod(temp_filename, 0o777)  # Aseguramos permisos de lectura y escritura al archivo
+               logging.info(f"Archivo temporal creado: {temp_filename}")
             except Exception as e:
-               logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
+              logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
+              raise
+
+            audio_clip = None
+            try:
+               audio_clip = AudioFileClip(temp_filename)
+               clips_audio.append(audio_clip)
+            except Exception as e:
+               logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
                raise
 
-            audio_clip = AudioFileClip(temp_filename)
-            clips_audio.append(audio_clip)
             duracion = audio_clip.duration
 
             text_img = create_text_image(segmento)
@@ -209,18 +215,24 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
 
         clips_finales.append(subscribe_clip)
 
-        video_final = concatenate_videoclips(clips_finales, method="compose")
+        video_final = None
+        try:
+            video_final = concatenate_videoclips(clips_finales, method="compose")
 
-        video_final.write_videofile(
-            nombre_salida,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            preset='ultrafast',
-            threads=4
-        )
-
-        video_final.close()
+            video_final.write_videofile(
+                nombre_salida,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                preset='ultrafast',
+                threads=4
+            )
+        except Exception as e:
+           logging.error(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
+           raise
+        finally:
+             if video_final:
+               video_final.close()
 
         for clip in clips_audio:
             try:
@@ -240,13 +252,13 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                   os.chmod(temp_file, 0o777)
                   os.close(os.open(temp_file, os.O_RDONLY))
                   os.remove(temp_file)
+                  logging.info(f"Archivo temporal eliminado: {temp_file}")
             except Exception as e:
                 logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
-
         return True, "Video generado exitosamente"
 
     except Exception as e:
-        logging.error(f"Error: {str(e)}")
+        logging.error(f"Error en la creación de video: {str(e)}")
         for clip in clips_audio:
             try:
                 clip.close()
