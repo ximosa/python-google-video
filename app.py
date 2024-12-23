@@ -15,18 +15,21 @@ logging.basicConfig(level=logging.INFO)
 
 # Obtener credenciales de GCP de las variables de entorno
 try:
-    credentials_str = os.environ["GOOGLE_CREDENTIALS"]
-    credentials = json.loads(credentials_str)
-    logging.info("Credenciales de Google Cloud cargadas desde variables de entorno.")
-    with open("/app/google_credentials.json", "w") as f:
-        json.dump(credentials, f)
+    credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
+    if credentials_str:
+        credentials = json.loads(credentials_str)
+        logging.info("Credenciales de Google Cloud cargadas desde variables de entorno.")
+        with open("/app/google_credentials.json", "w") as f:
+            json.dump(credentials, f)
 
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/app/google_credentials.json"
-    logging.info("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS establecida.")
-except KeyError:
-    logging.error("La variable de entorno GOOGLE_CREDENTIALS no está configurada.")
-    st.error("La variable de entorno GOOGLE_CREDENTIALS no está configurada.")
-    st.stop()
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/app/google_credentials.json"
+        logging.info("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS establecida.")
+    else:
+        raise KeyError("Variable de entorno GOOGLE_CREDENTIALS no está configurada")
+except KeyError as e:
+    logging.error(f"Error al cargar credenciales: {str(e)}")
+    st.error(f"Error al cargar credenciales: {str(e)}")
+    # st.stop()  No llamamos a st.stop para permitir más depuración
 
 # Configuración de voces
 VOCES_DISPONIBLES = {
@@ -108,27 +111,26 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
     return np.array(img)
 
-def dividir_texto(texto, max_chars=30000):
-  logging.info(f"Dividiendo texto de {len(texto)} caracteres")
-  partes = []
-  texto = texto[:200000]
+def dividir_texto(texto, max_chars=10000):
+    logging.info(f"Dividiendo texto de {len(texto)} caracteres")
+    texto = texto[:200000]
+    partes = []
 
-  while texto:
+    while texto:
       if len(texto) <= max_chars:
-          partes.append(texto)
-          break
+        partes.append(texto)
+        break
       indice = texto[:max_chars].rfind('.')
       if indice == -1:
-          indice = texto[:max_chars].rfind(' ')
+        indice = texto[:max_chars].rfind(' ')
       if indice == -1:
          partes.append(texto[:max_chars])
          texto = texto[max_chars:].strip()
       else:
         partes.append(texto[:indice + 1])
         texto = texto[indice + 1:].strip()
-  logging.info(f"Texto dividido en {len(partes)} partes")
-  return partes
-
+    logging.info(f"Texto dividido en {len(partes)} partes")
+    return partes
 # Función de creación de video
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
@@ -152,7 +154,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             segmentos_texto.append(segmento_actual.strip())
             segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
-
+        
         temp_dir = "/app/tmp"
         if not os.path.exists(temp_dir):
            os.makedirs(temp_dir)
@@ -200,8 +202,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                os.chmod(temp_filename, 0o777)
                logging.info(f"Archivo temporal creado: {temp_filename}")
             except Exception as e:
-               logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
-               raise
+              logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
+              raise
 
             audio_clip = None
             try:
@@ -239,19 +241,23 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
 
         video_final = None
         try:
-           video_final = concatenate_videoclips(clips_finales, method="compose")
+            video_final = concatenate_videoclips(clips_finales, method="compose")
 
-           video_final.write_videofile(
-              nombre_salida,
-              fps=24,
-               codec='libx264',
-              audio_codec='aac',
-              preset='ultrafast',
-              threads=4
-          )
+            video_final.write_videofile(
+                nombre_salida,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                preset='ultrafast',
+                threads=4,
+                progress_bar=False
+            )
+        except MemoryError as e:
+            logging.error(f"Error de memoria: {str(e)}")
+            raise Exception(f"Error de memoria: {str(e)}")
         except Exception as e:
             logging.error(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
-            raise
+            raise Exception(f"Error al concatenar los videos o crear el archivo final {nombre_salida}: {str(e)}")
         finally:
             if video_final:
                 video_final.close()
@@ -276,7 +282,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                     os.remove(temp_file)
                     logging.info(f"Archivo temporal eliminado: {temp_file}")
             except Exception as e:
-               logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
+                logging.error(f"Error al eliminar el archivo {temp_file}: {str(e)}")
+
         return True, "Video generado exitosamente"
 
     except Exception as e:
@@ -311,7 +318,7 @@ def main():
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
     
     try:
-        if uploaded_file:
+       if uploaded_file:
            texto = uploaded_file.read().decode("utf-8")
            nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
            
@@ -320,17 +327,17 @@ def main():
                    nombre_salida_completo = f"{nombre_salida}.mp4"
                    success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                    if success:
-                       st.success(message)
-                       st.video(nombre_salida_completo)
-                       with open(nombre_salida_completo, 'rb') as file:
-                           st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                           
-                       st.session_state.video_path = nombre_salida_completo
+                     st.success(message)
+                     st.video(nombre_salida_completo)
+                     with open(nombre_salida_completo, 'rb') as file:
+                         st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                         
+                     st.session_state.video_path = nombre_salida_completo
                    else:
                         st.error(f"Error al generar video: {message}")
+       if st.session_state.get("video_path"):
+         st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
-        if st.session_state.get("video_path"):
-             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
     except Exception as e:
        logging.error(f"Error en el main: {str(e)}")
        st.error(f"Error inesperado: {str(e)}")
