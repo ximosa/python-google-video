@@ -117,6 +117,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
     clips_audio = []
     clips_finales = []
     temp_dir = "/dev/shm"
+    video_final = None # inicializa video_final a None
     
     try:
         logging.info("Iniciando proceso de creación de video...")
