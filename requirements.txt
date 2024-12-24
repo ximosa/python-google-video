@@ -7,3 +7,4 @@ google-cloud-texttospeech
 imageio
 imageio-ffmpeg
 google-cloud-storage
+flask
