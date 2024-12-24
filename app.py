@@ -325,10 +325,12 @@ def cloud_run_handler(event):
     else:
         logging.error(f"Error al generar video: {message}")
 
-
 if __name__ == "__main__":
     if "K_SERVICE" in os.environ:
-        cloud_run_handler(st.session_state)
+        import functions_framework
+        @functions_framework.cloud_event
+        def handler(cloud_event):
+            cloud_run_handler(cloud_event.data)
     else:
         # Inicializar session state
         if "video_path" not in st.session_state:
