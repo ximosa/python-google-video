@@ -10,12 +10,6 @@ import numpy as np
 import requests
 from io import BytesIO
 import base64
-
-# Configuración del directorio persistente
-OUTPUT_DIR = "/tmp/videos"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.chmod(OUTPUT_DIR, 0o777)
-
 logging.basicConfig(level=logging.INFO)
 
 # Configuración de credenciales GCP
@@ -51,10 +45,7 @@ VOCES_DISPONIBLES = {
 def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
     img = Image.new('RGB', size, 'black')
     draw = ImageDraw.Draw(img)
-    try:
-      font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-    except:
-      font = ImageFont.load_default()
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
 
     words = text.split()
     lines = []
@@ -85,10 +76,7 @@ def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
 def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
     draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-    except:
-        font = ImageFont.load_default()
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
 
     # Cargar logo del canal
     try:
@@ -107,11 +95,7 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
     draw.text((x1, y1), text1, font=font, fill="white")
     
-    try:
-      font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
-    except:
-        font2 = ImageFont.load_default()
-    
+    font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
     text2 = "Dale like y activa la campana 🔔"
     left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
     x2 = (size[0] - (right2 - left2)) // 2
@@ -179,7 +163,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
             
-            temp_filename = os.path.join(OUTPUT_DIR,f"temp_audio_{i}.mp3")
+            temp_filename = f"temp_audio_{i}.mp3"
             archivos_temp.append(temp_filename)
             with open(temp_filename, "wb") as out:
                 out.write(response.audio_content)
@@ -213,9 +197,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
-        video_path = os.path.join(OUTPUT_DIR, f"{nombre_salida}.mp4")
         video_final.write_videofile(
-            video_path,
+            nombre_salida,
             fps=24,
             codec='libx264',
             audio_codec='aac',
@@ -223,30 +206,23 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             threads=4
         )
         
-        try:
-          video_final.close()
-        except:
-            pass
+        video_final.close()
         
         for clip in clips_audio:
-            try:
-                clip.close()
-            except:
-                pass
+            clip.close()
         
         for clip in clips_finales:
-            try:
-                clip.close()
-            except:
-                pass
+            clip.close()
             
         for temp_file in archivos_temp:
             try:
-                os.remove(temp_file)
+                if os.path.exists(temp_file):
+                    os.close(os.open(temp_file, os.O_RDONLY))
+                    os.remove(temp_file)
             except:
                 pass
         
-        return True, "Video generado exitosamente", video_path
+        return True, "Video generado exitosamente"
         
     except Exception as e:
         logging.error(f"Error: {str(e)}")
@@ -264,7 +240,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 
         for temp_file in archivos_temp:
             try:
-                os.remove(temp_file)
+                if os.path.exists(temp_file):
+                    os.close(os.open(temp_file, os.O_RDONLY))
+                    os.remove(temp_file)
             except:
                 pass
         
@@ -284,24 +262,15 @@ def main():
         
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
-                nombre_salida_completo = f"{nombre_salida}"
-                success, message, video_path = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                nombre_salida_completo = f"{nombre_salida}.mp4"
+                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                 if success:
                   st.success(message)
-                  
-                  try:
-                    with open(video_path, 'rb') as file:
-                        video_data = file.read()
-                        b64 = base64.b64encode(video_data).decode()
-                        href = f'<a href="data:video/mp4;base64,{b64}" download="{nombre_salida}.mp4">Descargar Video</a>'
-                        st.markdown(href, unsafe_allow_html=True)
-
-                    st.video(video_data)
-                  except Exception as e:
-                    st.error(f"Error al mostrar video: {e}")
-                  
+                  st.video(nombre_salida_completo)
+                  with open(nombre_salida_completo, 'rb') as file:
+                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
                     
-                  st.session_state.video_path = video_path
+                  st.session_state.video_path = nombre_salida_completo
                 else:
                   st.error(f"Error al generar video: {message}")
 
