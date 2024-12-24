@@ -264,6 +264,7 @@ def create_video_thread(texto, nombre_salida, voz, logo_url, result_queue):
     try:
         logging.info("Iniciando creación del video en segundo plano...")
         video_files_lists_gen = audio_segment_generator(texto,voz,logo_url)
+        
         all_video_files = []
         for video_files in video_files_lists_gen:
           if video_files is None:
@@ -276,35 +277,58 @@ def create_video_thread(texto, nombre_salida, voz, logo_url, result_queue):
             logging.error("No se han generado ficheros temporales.")
             result_queue.put((False, "Error al generar video: No se han generado los ficheros de vídeo temporales.", None))
             return
-        # Use ffmpeg to concatenate video files
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_final_video_file:
-            temp_final_video_filename = temp_final_video_file.name
-            
-            # Crear el comando ffmpeg
-            command = ["ffmpeg", "-y"]
-            for file in all_video_files:
-                command.extend(["-i", file])
-            command.extend(["-filter_complex", "concat=n=" + str(len(all_video_files)) + ":v=1:a=1", temp_final_video_filename])
-            try:
-                subprocess.run(command, check=True, capture_output=True)
-                logging.info("Vídeo concatenado con ffmpeg correctamente")
-            except subprocess.CalledProcessError as e:
-                logging.error(f"Error al concatenar el vídeo con ffmpeg: {e} - {e.stderr.decode()}")
-                result_queue.put((False, f"Error al concatenar el vídeo con ffmpeg: {e}", None))
-                return
+          
+        # Concatenar archivos en lotes
+        batch_size = 10
+        batch_files = [all_video_files[i:i + batch_size] for i in range(0, len(all_video_files), batch_size)]
+        intermediate_files = []
 
-            # Inicializar cliente de GCS
-            storage_client = storage.Client()
-            bucket = storage_client.bucket(BUCKET_NAME)
-            blob = bucket.blob(nombre_salida)
+        for i, batch in enumerate(batch_files):
+            with tempfile.NamedTemporaryFile(suffix=f"intermediate_{i}.mp4", delete=False) as temp_intermediate_file:
+              temp_intermediate_filename = temp_intermediate_file.name
+              command = ["ffmpeg", "-y"]
+              for file in batch:
+                  command.extend(["-i", file])
+              command.extend(["-filter_complex", "concat=n=" + str(len(batch)) + ":v=1:a=1", temp_intermediate_filename])
+              try:
+                  subprocess.run(command, check=True, capture_output=True)
+                  logging.info(f"Lote {i} concatenado con ffmpeg correctamente")
+                  intermediate_files.append(temp_intermediate_filename)
+              except subprocess.CalledProcessError as e:
+                  logging.error(f"Error al concatenar el lote {i} con ffmpeg: {e} - {e.stderr.decode()}")
+                  result_queue.put((False, f"Error al concatenar el lote {i} con ffmpeg: {e}", None))
+                  return
+        
+        # Concatenar archivos intermedios
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_final_video_file:
+          temp_final_video_filename = temp_final_video_file.name
             
-            # Subir video a GCS
-            blob.upload_from_filename(temp_final_video_filename)
-            os.remove(temp_final_video_filename)
-            for file in all_video_files:
-              os.remove(file)
-            logging.info("Video subido a GCS exitosamente.")
+          command = ["ffmpeg", "-y"]
+          for file in intermediate_files:
+             command.extend(["-i", file])
+          command.extend(["-filter_complex", "concat=n=" + str(len(intermediate_files)) + ":v=1:a=1", temp_final_video_filename])
+          try:
+              subprocess.run(command, check=True, capture_output=True)
+              logging.info("Vídeo concatenado con ffmpeg correctamente")
+          except subprocess.CalledProcessError as e:
+              logging.error(f"Error al concatenar el vídeo con ffmpeg: {e} - {e.stderr.decode()}")
+              result_queue.put((False, f"Error al concatenar el vídeo con ffmpeg: {e}", None))
+              return
+          
+          # Inicializar cliente de GCS
+          storage_client = storage.Client()
+          bucket = storage_client.bucket(BUCKET_NAME)
+          blob = bucket.blob(nombre_salida)
             
+          # Subir video a GCS
+          blob.upload_from_filename(temp_final_video_filename)
+          os.remove(temp_final_video_filename)
+          for file in all_video_files:
+            os.remove(file)
+          for file in intermediate_files:
+            os.remove(file)
+          logging.info("Video subido a GCS exitosamente.")
+          
         
         
         result_queue.put((True, "Video generado y subido a GCS exitosamente", f"https://storage.googleapis.com/{BUCKET_NAME}/{nombre_salida}"))
