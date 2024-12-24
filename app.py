@@ -10,6 +10,7 @@ import numpy as np
 import requests
 from io import BytesIO
 import base64
+from google.cloud import storage
 logging.basicConfig(level=logging.INFO)
 
 # Configuración de credenciales GCP
@@ -105,12 +106,12 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     return np.array(img)
 
 # Función de creación de video
-def create_simple_video(texto, nombre_salida, voz, logo_url):
+def create_simple_video(texto, nombre_salida, voz, logo_url, bucket_name, output_bucket_name):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
     video_buffer = BytesIO()
-    
+    storage_client = storage.Client()
     try:
         logging.info("Iniciando proceso de creación de video...")
         frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
@@ -223,10 +224,14 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                     os.remove(temp_file)
             except:
                 pass
-        
-        
+
         video_buffer.seek(0) # Regresamos el puntero al inicio del buffer para poder leer el archivo
-        return True, "Video generado exitosamente", video_buffer
+        # Subimos el video al bucket de salida
+        bucket = storage_client.bucket(output_bucket_name)
+        blob = bucket.blob(nombre_salida)
+        blob.upload_from_file(video_buffer,content_type="video/mp4")
+        
+        return True, "Video generado exitosamente", blob.public_url
         
     except Exception as e:
         logging.error(f"Error: {str(e)}")
@@ -252,9 +257,22 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         return False, str(e), None
 
-
 def main():
     st.title("Creador de Videos Automático")
+    
+    # Configura la entrada del bucket y el bucket de salida
+    input_bucket_name = os.getenv("INPUT_BUCKET_NAME")
+    output_bucket_name = os.getenv("OUTPUT_BUCKET_NAME")
+
+    if not input_bucket_name or not output_bucket_name:
+         st.error("Las variables de entorno INPUT_BUCKET_NAME y OUTPUT_BUCKET_NAME deben estar configuradas")
+         return
+
+    if "file_url" not in st.session_state:
+        st.session_state.file_url = None
+    if "video_url" not in st.session_state:
+        st.session_state.video_url = None
+    
     
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
@@ -267,20 +285,57 @@ def main():
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 nombre_salida_completo = f"{nombre_salida}.mp4"
-                success, message, video_buffer = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                success, message, video_url = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url, input_bucket_name,output_bucket_name )
                 if success:
                   st.success(message)
-                  #st.video(video_buffer)
-                  st.download_button(label="Descargar video",data=video_buffer,file_name=nombre_salida_completo)
-                  st.session_state.video_path = nombre_salida_completo
+                  st.session_state.video_url = video_url
+                  st.markdown(f'<a href="{video_url}" target="_blank">Descargar video desde Cloud Storage</a>', unsafe_allow_html=True)
                 else:
                   st.error(f"Error al generar video: {message}")
 
-        if st.session_state.get("video_path"):
+        if st.session_state.get("video_url"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
+# Nueva función para el caso del disparador de Cloud Storage
+def cloud_run_handler(event):
+  bucket_name = event['bucket']
+  file_name = event['name']
+
+  storage_client = storage.Client()
+  bucket = storage_client.bucket(bucket_name)
+  blob = bucket.blob(file_name)
+
+  # Descargamos el texto del archivo desde Cloud Storage
+  texto = blob.download_as_text()
+  
+  # Configuración por defecto de voz y logo
+  voz_seleccionada = 'es-ES-Neural2-C'
+  logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    
+  # Definimos el nombre del archivo y del bucket de salida
+  nombre_salida_completo = f"{file_name}.mp4"
+  output_bucket_name = os.getenv("OUTPUT_BUCKET_NAME")
+
+  success, message, video_url = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url, bucket_name, output_bucket_name)
+  if success:
+      logging.info(f'Video generado correctamente, el video está disponible en: {video_url}')
+      # Agrega aquí la lógica para informar al usuario si es necesario
+  else:
+      logging.error(f"Error al generar video: {message}")
+
+
 if __name__ == "__main__":
-    # Inicializar session state
-    if "video_path" not in st.session_state:
-        st.session_state.video_path = None
-    main()
+    if "K_SERVICE" in os.environ:
+        from flask import Flask, request
+        app = Flask(__name__)
+        @app.route("/", methods=["POST"])
+        def handler():
+           data = request.get_json()
+           cloud_run_handler(data)
+           return "", 200
+        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+    else:
+        # Inicializar session state
+        if "video_path" not in st.session_state:
+            st.session_state.video_path = None
+        main()
