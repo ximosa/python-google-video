@@ -258,43 +258,54 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, bucket_name, output
         return False, str(e), None
 
 def main():
+    logging.info("Inicio de la función main")
     st.title("Creador de Videos Automático")
-    
-    # Configura la entrada del bucket y el bucket de salida
+    logging.info("Título añadido")
     input_bucket_name = os.getenv("INPUT_BUCKET_NAME")
     output_bucket_name = os.getenv("OUTPUT_BUCKET_NAME")
-
+    logging.info("Variables de entorno obtenidas")
+    
     if not input_bucket_name or not output_bucket_name:
-         st.error("Las variables de entorno INPUT_BUCKET_NAME y OUTPUT_BUCKET_NAME deben estar configuradas")
-         return
-
+       st.error("Las variables de entorno INPUT_BUCKET_NAME y OUTPUT_BUCKET_NAME deben estar configuradas")
+       logging.error("Variables de entorno no configuradas")
+       return
+   
     if "file_url" not in st.session_state:
-        st.session_state.file_url = None
+       st.session_state.file_url = None
     if "video_url" not in st.session_state:
-        st.session_state.video_url = None
+       st.session_state.video_url = None
     
-    
+    logging.info("Inicializaciones de session_state")
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
+    logging.info("Añadido file_uploader")
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
+    logging.info("Añadido selectbox")
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    logging.info("Configurado logo_url")
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
         nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
+        logging.info("Añadido los text_inputs")
         
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
+                logging.info("Generando video")
                 nombre_salida_completo = f"{nombre_salida}.mp4"
                 success, message, video_url = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url, input_bucket_name,output_bucket_name )
                 if success:
                   st.success(message)
                   st.session_state.video_url = video_url
                   st.markdown(f'<a href="{video_url}" target="_blank">Descargar video desde Cloud Storage</a>', unsafe_allow_html=True)
+                  logging.info("Video generado correctamente")
                 else:
                   st.error(f"Error al generar video: {message}")
+                  logging.error("Error al generar video")
 
-        if st.session_state.get("video_url"):
-            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
+    if st.session_state.get("video_url"):
+       st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
+       logging.info("Final de la función main")
+
 
 # Nueva función para el caso del disparador de Cloud Storage
 def cloud_run_handler(event):
@@ -326,7 +337,6 @@ def cloud_run_handler(event):
             logging.error(f"Error al generar video: {message}")
     else:
         logging.error(f"El evento del disparador no contiene la información necesaria para ejecutar la función `cloud_run_handler`")
-
 
 if __name__ == "__main__":
     if "K_SERVICE" in os.environ:
