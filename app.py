@@ -27,23 +27,33 @@ except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
 
-# Configuración de voces
 VOCES_DISPONIBLES = {
-    'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
-    'es-ES-Journey-F': texttospeech.SsmlVoiceGender.FEMALE,
-    'es-ES-Journey-O': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-A': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-B': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Neural2-C': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-D': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-E': texttospeech.SsmlVoiceGender.FEMALE,
-    'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE,
-    'es-ES-Polyglot-1': texttospeech.SsmlVoiceGender.MALE,
-    'es-ES-Standard-A': texttospeech.SsmlVoiceGender.FEMALE,
-    'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
-    'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
+    'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE
 }
 
+def dividir_texto(texto, max_caracteres=1500):
+    frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
+    chunks = []
+    chunk_actual = []
+    longitud_actual = 0
+    
+    for frase in frases:
+        if longitud_actual + len(frase) > max_caracteres:
+            chunks.append(' '.join(chunk_actual))
+            chunk_actual = [frase]
+            longitud_actual = len(frase)
+        else:
+            chunk_actual.append(frase)
+            longitud_actual += len(frase)
+    
+    if chunk_actual:
+        chunks.append(' '.join(chunk_actual))
+    return chunks
 def create_text_image(text, size=(1280, 320), font_size=30, line_height=40):
     img = Image.new('RGB', size, 'black')
     draw = ImageDraw.Draw(img)
@@ -120,16 +130,16 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             logging.info("Iniciando proceso de creación de video...")
-            frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
+            chunks_texto = dividir_texto(texto)
             client = texttospeech.TextToSpeechClient()
             tiempo_acumulado = 0
             
-            total_frases = len(frases)
-            for i, frase in enumerate(frases):
+            total_chunks = len(chunks_texto)
+            for i, chunk in enumerate(chunks_texto):
                 if progress_bar:
-                    progress_bar.progress((i + 1) / (total_frases + 1))
+                    progress_bar.progress((i + 1) / (total_chunks + 1))
                 
-                synthesis_input = texttospeech.SynthesisInput(text=frase)
+                synthesis_input = texttospeech.SynthesisInput(text=chunk)
                 voice = texttospeech.VoiceSelectionParams(
                     language_code="es-ES",
                     name=voz,
@@ -155,7 +165,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                 clips_audio.append(audio_clip)
                 
                 duracion = audio_clip.duration
-                text_img = create_text_image(frase)
+                text_img = create_text_image(chunk)
                 txt_clip = (ImageClip(text_img)
                           .set_start(tiempo_acumulado)
                           .set_duration(duracion)
@@ -186,17 +196,21 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                 preset='ultrafast',
                 threads=4
             )
-            
-            with open(output_path, 'rb') as video_file:
-                video_data = video_file.read()
-            
-            return True, "Video generado exitosamente", video_data
+
+            def generate_chunks():
+                with open(output_path, 'rb') as video_file:
+                    while True:
+                        chunk = video_file.read(1024 * 1024)  # 1MB chunks
+                        if not chunk:
+                            break
+                        yield chunk
+
+            return True, "Video generado exitosamente", generate_chunks
             
         except Exception as e:
             logging.error(f"Error en la creación de video: {str(e)}")
             return False, str(e), None
         finally:
-            # Limpieza
             for clip in clips_audio + clips_finales:
                 try:
                     clip.close()
@@ -219,7 +233,7 @@ def main():
         if st.button("Generar Video"):
             progress_bar = st.progress(0)
             with st.spinner('Generando video...'):
-                success, message, video_data = create_simple_video(
+                success, message, video_generator = create_simple_video(
                     texto, 
                     nombre_salida, 
                     voz_seleccionada, 
@@ -227,8 +241,9 @@ def main():
                     progress_bar
                 )
                 
-                if success and video_data:
+                if success and video_generator:
                     st.success(message)
+                    video_data = b''.join(list(video_generator()))
                     st.download_button(
                         label="Descargar Video",
                         data=video_data,
