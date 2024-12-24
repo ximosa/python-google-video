@@ -7,9 +7,12 @@ from google.cloud import texttospeech
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-import tempfile
 import requests
 from io import BytesIO
+
+# Configuración del directorio persistente
+OUTPUT_DIR = "/tmp"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -35,7 +38,6 @@ VOCES_DISPONIBLES = {
     'es-ES-Neural2-E': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE
 }
-
 def dividir_texto(texto, max_caracteres=1500):
     frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
     chunks = []
@@ -54,6 +56,7 @@ def dividir_texto(texto, max_caracteres=1500):
     if chunk_actual:
         chunks.append(' '.join(chunk_actual))
     return chunks
+
 def create_text_image(text, size=(1280, 320), font_size=30, line_height=40):
     img = Image.new('RGB', size, 'black')
     draw = ImageDraw.Draw(img)
@@ -127,97 +130,98 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
     clips_finales = []
     video_final = None
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        try:
-            logging.info("Iniciando proceso de creación de video...")
-            chunks_texto = dividir_texto(texto)
-            client = texttospeech.TextToSpeechClient()
-            tiempo_acumulado = 0
+    try:
+        logging.info("Iniciando proceso de creación de video...")
+        chunks_texto = dividir_texto(texto)
+        client = texttospeech.TextToSpeechClient()
+        tiempo_acumulado = 0
+        
+        total_chunks = len(chunks_texto)
+        for i, chunk in enumerate(chunks_texto):
+            if progress_bar:
+                progress_bar.progress((i + 1) / (total_chunks + 1))
             
-            total_chunks = len(chunks_texto)
-            for i, chunk in enumerate(chunks_texto):
-                if progress_bar:
-                    progress_bar.progress((i + 1) / (total_chunks + 1))
-                
-                synthesis_input = texttospeech.SynthesisInput(text=chunk)
-                voice = texttospeech.VoiceSelectionParams(
-                    language_code="es-ES",
-                    name=voz,
-                    ssml_gender=VOCES_DISPONIBLES[voz]
-                )
-                audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.MP3
-                )
-                
-                response = client.synthesize_speech(
-                    input=synthesis_input,
-                    voice=voice,
-                    audio_config=audio_config
-                )
-                
-                temp_audio_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
-                archivos_temp.append(temp_audio_filename)
-                
-                with open(temp_audio_filename, "wb") as out:
-                    out.write(response.audio_content)
-                
-                audio_clip = AudioFileClip(temp_audio_filename)
-                clips_audio.append(audio_clip)
-                
-                duracion = audio_clip.duration
-                text_img = create_text_image(chunk)
-                txt_clip = (ImageClip(text_img)
-                          .set_start(tiempo_acumulado)
-                          .set_duration(duracion)
-                          .set_position('center'))
-                
-                video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-                clips_finales.append(video_segment)
-                
-                tiempo_acumulado += duracion
-                time.sleep(0.2)
-
-            subscribe_img = create_subscription_image(logo_url)
-            subscribe_clip = (ImageClip(subscribe_img)
-                            .set_start(tiempo_acumulado)
-                            .set_duration(5)
-                            .set_position('center'))
-            
-            clips_finales.append(subscribe_clip)
-            
-            video_final = concatenate_videoclips(clips_finales, method="compose")
-            output_path = os.path.join(temp_dir, f"{nombre_salida}.mp4")
-            
-            video_final.write_videofile(
-                output_path,
-                fps=24,
-                codec='libx264',
-                audio_codec='aac',
-                preset='ultrafast',
-                threads=4
+            synthesis_input = texttospeech.SynthesisInput(text=chunk)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="es-ES",
+                name=voz,
+                ssml_gender=VOCES_DISPONIBLES[voz]
             )
-
-            def generate_chunks():
-                with open(output_path, 'rb') as video_file:
-                    while True:
-                        chunk = video_file.read(1024 * 1024)  # 1MB chunks
-                        if not chunk:
-                            break
-                        yield chunk
-
-            return True, "Video generado exitosamente", generate_chunks
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
             
-        except Exception as e:
-            logging.error(f"Error en la creación de video: {str(e)}")
-            return False, str(e), None
-        finally:
-            for clip in clips_audio + clips_finales:
-                try:
-                    clip.close()
-                except:
-                    pass
-            if video_final:
-                video_final.close()
+            response = client.synthesize_speech(
+                input=synthesis_input,
+                voice=voice,
+                audio_config=audio_config
+            )
+            
+            temp_audio_filename = os.path.join(OUTPUT_DIR, f"temp_audio_{i}.mp3")
+            archivos_temp.append(temp_audio_filename)
+            
+            with open(temp_audio_filename, "wb") as out:
+                out.write(response.audio_content)
+            
+            audio_clip = AudioFileClip(temp_audio_filename)
+            clips_audio.append(audio_clip)
+            
+            duracion = audio_clip.duration
+            text_img = create_text_image(chunk)
+            txt_clip = (ImageClip(text_img)
+                      .set_start(tiempo_acumulado)
+                      .set_duration(duracion)
+                      .set_position('center'))
+            
+            video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+            clips_finales.append(video_segment)
+            
+            tiempo_acumulado += duracion
+            time.sleep(0.2)
+
+        subscribe_img = create_subscription_image(logo_url)
+        subscribe_clip = (ImageClip(subscribe_img)
+                        .set_start(tiempo_acumulado)
+                        .set_duration(5)
+                        .set_position('center'))
+        
+        clips_finales.append(subscribe_clip)
+        
+        video_final = concatenate_videoclips(clips_finales, method="compose")
+        output_path = os.path.join(OUTPUT_DIR, f"{nombre_salida}.mp4")
+        
+        video_final.write_videofile(
+            output_path,
+            fps=24,
+            codec='libx264',
+            audio_codec='aac',
+            preset='ultrafast',
+            threads=4
+        )
+
+        with open(output_path, 'rb') as video_file:
+            video_data = video_file.read()
+            
+        # Limpieza de archivos temporales
+        for archivo in archivos_temp:
+            if os.path.exists(archivo):
+                os.remove(archivo)
+        if os.path.exists(output_path):
+            os.remove(output_path)
+            
+        return True, "Video generado exitosamente", video_data
+        
+    except Exception as e:
+        logging.error(f"Error en la creación de video: {str(e)}")
+        return False, str(e), None
+    finally:
+        for clip in clips_audio + clips_finales:
+            try:
+                clip.close()
+            except:
+                pass
+        if video_final:
+            video_final.close()
 
 def main():
     st.title("Creador de Videos Automático")
@@ -233,7 +237,7 @@ def main():
         if st.button("Generar Video"):
             progress_bar = st.progress(0)
             with st.spinner('Generando video...'):
-                success, message, video_generator = create_simple_video(
+                success, message, video_data = create_simple_video(
                     texto, 
                     nombre_salida, 
                     voz_seleccionada, 
@@ -241,9 +245,8 @@ def main():
                     progress_bar
                 )
                 
-                if success and video_generator:
+                if success and video_data:
                     st.success(message)
-                    video_data = b''.join(list(video_generator()))
                     st.download_button(
                         label="Descargar Video",
                         data=video_data,
