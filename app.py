@@ -9,11 +9,12 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import requests
 from io import BytesIO
+import base64 # Importado para la descarga alternativa
 
 # Configuración del directorio persistente
-OUTPUT_DIR = "/tmp/videos"  # Usamos un subdirectorio dentro de /tmp
+OUTPUT_DIR = "/tmp/videos"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.chmod(OUTPUT_DIR, 0o777)  # Aseguramos permisos de escritura
+os.chmod(OUTPUT_DIR, 0o777)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -22,9 +23,9 @@ try:
     credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
     if credentials_str:
         credentials = json.loads(credentials_str)
-        with open("/tmp/google_credentials.json", "w") as f: # Usamos /tmp
+        with open("/tmp/google_credentials.json", "w") as f:
             json.dump(credentials, f)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_credentials.json" # Usamos /tmp
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_credentials.json"
     else:
         raise KeyError("Variable de entorno GOOGLE_CREDENTIALS no configurada")
 except KeyError as e:
@@ -139,7 +140,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
     clips_audio = []
     clips_finales = []
     video_final = None
-    output_path = os.path.join(OUTPUT_DIR, f"{nombre_salida}.mp4") # Definimos la ruta de salida antes
+    output_path = os.path.join(OUTPUT_DIR, f"{nombre_salida}.mp4")
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -217,7 +218,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
 
     except Exception as e:
         logging.error(f"Error en la creación de video: {str(e)}")
-        return False, str(e), None
+        return False, f"Error al generar video: {str(e)}", None
     finally:
         # Limpieza de archivos
         for archivo in archivos_temp:
@@ -240,7 +241,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                 os.remove(output_path)
         except:
             pass
-        
+
 def main():
     st.title("Creador de Videos Automático")
     
@@ -265,12 +266,19 @@ def main():
                 
                 if success and video_data:
                     st.success(message)
-                    st.download_button(
-                        label="Descargar Video",
-                        data=video_data,
-                        file_name=f"{nombre_salida}.mp4",
-                        mime="video/mp4"
-                    )
+                    # st.download_button  (esta parte se cambia en caso de problemas)
+                    # st.download_button(
+                    #    label="Descargar Video",
+                    #    data=video_data,
+                    #    file_name=f"{nombre_salida}.mp4",
+                    #    mime="video/mp4"
+                    # )
+                    
+                    # Alternativa al download button (más avanzada)
+                    b64 = base64.b64encode(video_data).decode()
+                    href = f'<a href="data:video/mp4;base64,{b64}" download="{nombre_salida}.mp4">Descargar Video</a>'
+                    st.markdown(href, unsafe_allow_html=True)
+
                 else:
                     st.error(f"Error al generar video: {message}")
 
