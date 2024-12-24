@@ -296,44 +296,39 @@ def main():
         if st.session_state.get("video_url"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
+
 # Nueva función para el caso del disparador de Cloud Storage
 def cloud_run_handler(event):
-  bucket_name = event['bucket']
-  file_name = event['name']
+    logging.info("Ejecutando cloud_run_handler")
+    bucket_name = event['bucket']
+    file_name = event['name']
 
-  storage_client = storage.Client()
-  bucket = storage_client.bucket(bucket_name)
-  blob = bucket.blob(file_name)
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(file_name)
 
-  # Descargamos el texto del archivo desde Cloud Storage
-  texto = blob.download_as_text()
-  
-  # Configuración por defecto de voz y logo
-  voz_seleccionada = 'es-ES-Neural2-C'
-  logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    # Descargamos el texto del archivo desde Cloud Storage
+    texto = blob.download_as_text()
     
-  # Definimos el nombre del archivo y del bucket de salida
-  nombre_salida_completo = f"{file_name}.mp4"
-  output_bucket_name = os.getenv("OUTPUT_BUCKET_NAME")
+    # Configuración por defecto de voz y logo
+    voz_seleccionada = 'es-ES-Neural2-C'
+    logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    
+    # Definimos el nombre del archivo y del bucket de salida
+    nombre_salida_completo = f"{file_name}.mp4"
+    output_bucket_name = os.getenv("OUTPUT_BUCKET_NAME")
 
-  success, message, video_url = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url, bucket_name, output_bucket_name)
-  if success:
-      logging.info(f'Video generado correctamente, el video está disponible en: {video_url}')
-      # Agrega aquí la lógica para informar al usuario si es necesario
-  else:
-      logging.error(f"Error al generar video: {message}")
+    success, message, video_url = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url, bucket_name, output_bucket_name)
+    if success:
+        logging.info(f'Video generado correctamente, el video está disponible en: {video_url}')
+        # Agrega aquí la lógica para informar al usuario si es necesario
+    else:
+        logging.error(f"Error al generar video: {message}")
 
 
 if __name__ == "__main__":
     if "K_SERVICE" in os.environ:
-        from flask import Flask, request
-        app = Flask(__name__)
-        @app.route("/", methods=["POST"])
-        def handler():
-           data = request.get_json()
-           cloud_run_handler(data)
-           return "", 200
-        app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+        cloud_run_handler(st.session_state)
     else:
         # Inicializar session state
         if "video_path" not in st.session_state:
