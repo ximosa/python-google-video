@@ -118,7 +118,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
     temp_dir = "/tmp" # Usando /tmp como directorio temporal
     video_final = None # inicializa video_final a None
     output_path = os.path.join(temp_dir, f"{nombre_salida}.mp4") # Ruta de salida del video en /tmp
-    
+    SEGMENT_SIZE = 200
+    VIDEO_HEIGHT = 360
+
     try:
         logging.info("Iniciando proceso de creación de video...")
 
@@ -140,7 +142,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         segmentos_texto = []
         segmento_actual = ""
         for frase in frases:
-            if len(segmento_actual) + len(frase) < 300:
+            if len(segmento_actual) + len(frase) < SEGMENT_SIZE:
                 segmento_actual += " " + frase
             else:
                 segmentos_texto.append(segmento_actual.strip())
@@ -182,28 +184,22 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
             
-            temp_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
-            archivos_temp.append(temp_filename)
-            try:
-              with open(temp_filename, "wb") as out:
-                 out.write(response.audio_content)
-              os.chmod(temp_filename, 0o777)
-              logging.info(f"Archivo temporal creado: {temp_filename}")
-            except Exception as e:
-                logging.error(f"Error al crear el archivo {temp_filename}: {str(e)}")
-                raise
-                
+            # Usar io.BytesIO para guardar el audio en memoria
+            temp_audio_buffer = BytesIO(response.audio_content)
+
+            
             audio_clip = None
             try:
-                audio_clip = AudioFileClip(temp_filename)
+                audio_clip = AudioFileClip(temp_audio_buffer)
                 clips_audio.append(audio_clip)
+                logging.info(f"Audio cargado en memoria: {temp_audio_buffer}")
             except Exception as e:
-                logging.error(f"Error al cargar el archivo de audio {temp_filename}: {str(e)}")
+                logging.error(f"Error al cargar el audio en memoria {temp_audio_buffer}: {str(e)}")
                 raise
 
             duracion = audio_clip.duration
             
-            text_img = create_text_image(segmento)
+            text_img = create_text_image(segmento, size=(1280, VIDEO_HEIGHT)) # Reducir altura de imagen
             txt_clip = (ImageClip(text_img)
                       .set_start(tiempo_acumulado)
                       .set_duration(duracion)
@@ -216,7 +212,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             time.sleep(0.2)
 
         # Añadir clip de suscripción
-        subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
+        subscribe_img = create_subscription_image(logo_url, size=(1280, VIDEO_HEIGHT))
         duracion_subscribe = 5
 
         subscribe_clip = (ImageClip(subscribe_img)
@@ -225,7 +221,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                         .set_position('center'))
 
         clips_finales.append(subscribe_clip)
-        
+
         video_final = concatenate_videoclips(clips_finales, method="compose")
 
         logging.info(f"Escribiendo video a {output_path}")
@@ -236,7 +232,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             codec='libx264',
             audio_codec='aac',
             preset='ultrafast',
-            threads=2
+            bitrate="3000k", # Comprimir el video
+            threads=4
         )
         
         # Limpiar los clips
@@ -253,36 +250,33 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
         if video_final:
            video_final.close()
-        
-        # Limpiar archivos temporales de audio
-        for temp_file in archivos_temp:
+
+        # Leer el archivo en memoria (generador)
+        def video_generator():
             try:
-                if os.path.exists(temp_file):
-                  os.remove(temp_file)
-            except:
-                logging.error(f"Error al eliminar archivo temporal de audio: {temp_file}")
-        
-        # Leer el archivo en memoria
-        try:
-            logging.info(f"Leyendo archivo de video {output_path}")
-            with open(output_path, 'rb') as file:
-                video_bytes = file.read()
-        except Exception as e:
-            logging.error(f"Error al leer el archivo de video: {str(e)}")
-            raise
-        
+               logging.info(f"Leyendo archivo de video {output_path}")
+               with open(output_path, 'rb') as file:
+                  while True:
+                     chunk = file.read(1024*1024) # Lee chunks de 1MB
+                     if not chunk:
+                        break
+                     yield chunk
+            except Exception as e:
+               logging.error(f"Error al leer el archivo de video: {str(e)}")
+               raise
+
         os.chmod(output_path, 0o777) # Establecer permisos
         logging.info(f"Permisos del archivo {output_path} establecidos a 777")
-        
+
         # Verificar tamaño del archivo
         if os.path.exists(output_path):
-             file_size = os.path.getsize(output_path)
-             logging.info(f"Tamaño del archivo de video {output_path}: {file_size} bytes")
+            file_size = os.path.getsize(output_path)
+            logging.info(f"Tamaño del archivo de video {output_path}: {file_size} bytes")
         else:
-            logging.error(f"No se encontró el archivo de video {output_path}")
-            raise Exception(f"No se encontró el archivo de video {output_path}")
+             logging.error(f"No se encontró el archivo de video {output_path}")
+             raise Exception(f"No se encontró el archivo de video {output_path}")
 
-        return True, "Video generado exitosamente", video_bytes, output_path  # Devuelve los bytes y la ruta del video
+        return True, "Video generado exitosamente", video_generator(), output_path  # Devuelve el generador y la ruta del video
         
     except Exception as e:
         logging.error(f"Error en la creación de video: {str(e)}")
@@ -302,14 +296,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         if video_final:
            video_final.close()
             
-        # Limpiar archivos temporales de audio
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.remove(temp_file)
-            except:
-                logging.error(f"Error al eliminar archivo temporal de audio: {temp_file}")
-        
         return False, str(e), None, None
 
 def main():
@@ -326,12 +312,12 @@ def main():
             
             if st.button("Generar Video"):
                 with st.spinner('Generando video...'):
-                    success, message, video_bytes, video_path = create_simple_video(texto, nombre_salida, voz_seleccionada, logo_url)
+                    success, message, video_generator, video_path = create_simple_video(texto, nombre_salida, voz_seleccionada, logo_url)
                     if success:
                       st.success(message)
-                      if video_bytes:
-                        st.video(video_bytes) # Muestra el video directamente desde la memoria
-                        st.download_button(label="Descargar video",data=video_bytes,file_name=f"{nombre_salida}.mp4") # Descarga el video desde la memoria
+                      if video_generator:
+                        st.video(video_generator) # Muestra el video directamente desde el generador
+                        st.download_button(label="Descargar video", file_name=f"{nombre_salida}.mp4", data=b''.join(video_generator))
                       else:
                           st.error("No se pudo leer el contenido del video")
 
