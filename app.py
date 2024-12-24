@@ -11,8 +11,9 @@ import requests
 from io import BytesIO
 
 # Configuración del directorio persistente
-OUTPUT_DIR = "/tmp"
+OUTPUT_DIR = "/tmp/videos"  # Usamos un subdirectorio dentro de /tmp
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.chmod(OUTPUT_DIR, 0o777)  # Aseguramos permisos de escritura
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,9 +22,9 @@ try:
     credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
     if credentials_str:
         credentials = json.loads(credentials_str)
-        with open("/app/google_credentials.json", "w") as f:
+        with open("/tmp/google_credentials.json", "w") as f: # Usamos /tmp
             json.dump(credentials, f)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/app/google_credentials.json"
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_credentials.json" # Usamos /tmp
     else:
         raise KeyError("Variable de entorno GOOGLE_CREDENTIALS no configurada")
 except KeyError as e:
@@ -45,6 +46,7 @@ VOCES_DISPONIBLES = {
     'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
 }
+
 def dividir_texto(texto, max_caracteres=1500):
     frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
     chunks = []
@@ -132,14 +134,12 @@ def create_subscription_image(logo_url, size=(1280, 320), font_size=60):
     return np.array(img)
 
 def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
-    OUTPUT_DIR = "/tmp/videos"
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    os.chmod(OUTPUT_DIR, 0o777)
-
+    
     archivos_temp = []
     clips_audio = []
     clips_finales = []
     video_final = None
+    output_path = os.path.join(OUTPUT_DIR, f"{nombre_salida}.mp4") # Definimos la ruta de salida antes
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -199,7 +199,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
         clips_finales.append(subscribe_clip)
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
-        output_path = os.path.join(OUTPUT_DIR, f"{nombre_salida}.mp4")
         
         video_final.write_videofile(
             output_path,
@@ -209,31 +208,39 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
             preset='ultrafast',
             threads=4
         )
-
+        
+        # Leer el archivo del disco para la descarga
         with open(output_path, 'rb') as video_file:
             video_data = video_file.read()
             
-        # Limpieza de archivos temporales
-        for archivo in archivos_temp:
-            if os.path.exists(archivo):
-                os.remove(archivo)
-        if os.path.exists(output_path):
-            os.remove(output_path)
-            
         return True, "Video generado exitosamente", video_data
-        
+
     except Exception as e:
         logging.error(f"Error en la creación de video: {str(e)}")
         return False, str(e), None
     finally:
+        # Limpieza de archivos
+        for archivo in archivos_temp:
+            try:
+                os.remove(archivo)
+            except:
+                pass
         for clip in clips_audio + clips_finales:
             try:
                 clip.close()
             except:
                 pass
         if video_final:
-            video_final.close()
-
+            try:
+                video_final.close()
+            except:
+                pass
+        try:
+            if os.path.exists(output_path):
+                os.remove(output_path)
+        except:
+            pass
+        
 def main():
     st.title("Creador de Videos Automático")
     
