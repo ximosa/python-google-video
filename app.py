@@ -53,67 +53,74 @@ VOCES_DISPONIBLES = {
 }
 
 def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
-    img = Image.new('RGB', size, 'black')
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+    try:
+      img = Image.new('RGB', size, 'black')
+      draw = ImageDraw.Draw(img)
+      font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
 
-    words = text.split()
-    lines = []
-    current_line = []
+      words = text.split()
+      lines = []
+      current_line = []
 
-    for word in words:
-        current_line.append(word)
-        test_line = ' '.join(current_line)
-        left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
-        if right > size[0] - 60:
-            current_line.pop()
-            lines.append(' '.join(current_line))
-            current_line = [word]
-    lines.append(' '.join(current_line))
+      for word in words:
+          current_line.append(word)
+          test_line = ' '.join(current_line)
+          left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
+          if right > size[0] - 60:
+              current_line.pop()
+              lines.append(' '.join(current_line))
+              current_line = [word]
+      lines.append(' '.join(current_line))
 
-    total_height = len(lines) * line_height
-    y = (size[1] - total_height) // 2
+      total_height = len(lines) * line_height
+      y = (size[1] - total_height) // 2
 
-    for line in lines:
-        left, top, right, bottom = draw.textbbox((0, 0), line, font=font)
-        x = (size[0] - (right - left)) // 2
-        draw.text((x, y), line, font=font, fill="white")
-        y += line_height
+      for line in lines:
+          left, top, right, bottom = draw.textbbox((0, 0), line, font=font)
+          x = (size[0] - (right - left)) // 2
+          draw.text((x, y), line, font=font, fill="white")
+          y += line_height
 
-    return np.array(img)
+      return np.array(img)
+    except Exception as e:
+        logging.error(f"Error en create_text_image: {str(e)}")
+        return None
 
 # Nueva función para crear la imagen de suscripción
 def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
-    img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
-    draw = ImageDraw.Draw(img)
-    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-
-    # Cargar logo del canal
     try:
-        response = requests.get(logo_url)
-        response.raise_for_status()
-        logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-        logo_img = logo_img.resize((100,100))
-        logo_position = (20,20)
-        img.paste(logo_img,logo_position,logo_img)
+      img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
+      draw = ImageDraw.Draw(img)
+      font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+
+      # Cargar logo del canal
+      try:
+          response = requests.get(logo_url)
+          response.raise_for_status()
+          logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
+          logo_img = logo_img.resize((100,100))
+          logo_position = (20,20)
+          img.paste(logo_img,logo_position,logo_img)
+      except Exception as e:
+          logging.error(f"Error al cargar el logo: {str(e)}")
+          
+      text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
+      left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
+      x1 = (size[0] - (right1 - left1)) // 2
+      y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
+      draw.text((x1, y1), text1, font=font, fill="white")
+      
+      font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
+      text2 = "Dale like y activa la campana 🔔"
+      left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
+      x2 = (size[0] - (right2 - left2)) // 2
+      y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
+      draw.text((x2,y2), text2, font=font2, fill="white")
+
+      return np.array(img)
     except Exception as e:
-        logging.error(f"Error al cargar el logo: {str(e)}")
-        
-    text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
-    left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
-    x1 = (size[0] - (right1 - left1)) // 2
-    y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
-    draw.text((x1, y1), text1, font=font, fill="white")
-    
-    font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
-    text2 = "Dale like y activa la campana 🔔"
-    left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
-    x2 = (size[0] - (right2 - left2)) // 2
-    y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
-    draw.text((x2,y2), text2, font=font2, fill="white")
-
-    return np.array(img)
-
+      logging.error(f"Error en create_subscription_image: {str(e)}")
+      return None
 def audio_segment_generator(texto, voz, logo_url):
     archivos_temp = []
     try:
@@ -167,7 +174,8 @@ def audio_segment_generator(texto, voz, logo_url):
                     raise
             
             if retry_count > max_retries:
-                raise Exception("Maximos intentos de reintento alcanzado")
+                logging.error(f"Máximos intentos de reintento alcanzados para segmento: {segmento}")
+                continue
             
             temp_filename = f"temp_audio_{i}.mp3"
             archivos_temp.append(temp_filename)
@@ -178,12 +186,23 @@ def audio_segment_generator(texto, voz, logo_url):
             duracion = audio_clip.duration
             
             text_img = create_text_image(segmento)
+            if text_img is None:
+                logging.error(f"Error: la imagen de texto es None para segmento: {segmento}")
+                audio_clip.close()
+                continue
+            
             txt_clip = (ImageClip(text_img)
                       .set_start(tiempo_acumulado)
                       .set_duration(duracion)
                       .set_position('center'))
             
             video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+            
+            if video_segment is None:
+              logging.error(f"Error al crear video segmento. video_segment es None")
+              audio_clip.close()
+              txt_clip.close()
+              continue
             
             yield video_segment
             
@@ -196,13 +215,19 @@ def audio_segment_generator(texto, voz, logo_url):
 
         # Añadir clip de suscripción
         subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
-        duracion_subscribe = 5
-        subscribe_clip = (ImageClip(subscribe_img)
-                        .set_start(tiempo_acumulado)
-                        .set_duration(duracion_subscribe)
-                        .set_position('center'))
-        yield subscribe_clip
-        subscribe_clip.close()
+        if subscribe_img is None:
+          logging.error(f"Error: la imagen de subscripción es None")
+        else:
+          duracion_subscribe = 5
+          subscribe_clip = (ImageClip(subscribe_img)
+                          .set_start(tiempo_acumulado)
+                          .set_duration(duracion_subscribe)
+                          .set_position('center'))
+          if subscribe_clip is None:
+            logging.error("Error al crear el clip de suscripción: subscribe_clip es None.")
+          else:
+            yield subscribe_clip
+            subscribe_clip.close()
 
     except Exception as e:
         logging.error(f"Error en generador de audio: {str(e)}")
@@ -228,7 +253,19 @@ def create_video_thread(texto, nombre_salida, voz, logo_url, result_queue):
         
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
             temp_filename = temp_video_file.name
-            video_final = concatenate_videoclips(list(audio_segments), method="compose")
+            clips_list = []
+            for clip in audio_segments:
+                if clip is None:
+                    logging.error(f"Error: un clip es None, abortando la creación de vídeo")
+                    result_queue.put((False, "Error al generar video: Uno o más clips de audio o video son None.", None))
+                    return
+                clips_list.append(clip)
+            if not clips_list:
+                 logging.error(f"Error: clips_list está vacía, abortando la creación de vídeo")
+                 result_queue.put((False, "Error al generar video: No se han podido generar los clips de vídeo", None))
+                 return
+
+            video_final = concatenate_videoclips(clips_list, method="compose")
             video_final.write_videofile(
                 temp_filename,
                 fps=24,
