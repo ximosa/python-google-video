@@ -3,8 +3,9 @@ import os
 import json
 import logging
 import time
+import subprocess
 from google.cloud import texttospeech
-from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
+from moviepy.editor import AudioFileClip, ImageClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import tempfile
@@ -123,6 +124,7 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
       return None
 def audio_segment_generator(texto, voz, logo_url):
     archivos_temp = []
+    video_files_list = []
     try:
         logging.info("Iniciando proceso de generación de audio...")
         frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
@@ -204,7 +206,16 @@ def audio_segment_generator(texto, voz, logo_url):
               txt_clip.close()
               continue
             
-            yield video_segment
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
+                video_segment.write_videofile(
+                    temp_video_file.name,
+                    fps=24,
+                    codec='libx264',
+                    audio_codec='aac',
+                    preset='ultrafast',
+                    threads=4
+                )
+                video_files_list.append(temp_video_file.name)
             
             audio_clip.close()
             txt_clip.close()
@@ -226,9 +237,18 @@ def audio_segment_generator(texto, voz, logo_url):
           if subscribe_clip is None:
             logging.error("Error al crear el clip de suscripción: subscribe_clip es None.")
           else:
-            yield subscribe_clip
+            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
+                subscribe_clip.write_videofile(
+                  temp_video_file.name,
+                    fps=24,
+                    codec='libx264',
+                    audio_codec='aac',
+                    preset='ultrafast',
+                    threads=4
+                )
+                video_files_list.append(temp_video_file.name)
             subscribe_clip.close()
-
+        yield video_files_list
     except Exception as e:
         logging.error(f"Error en generador de audio: {str(e)}")
         raise
@@ -240,45 +260,49 @@ def audio_segment_generator(texto, voz, logo_url):
                     os.remove(temp_file)
             except:
                 pass
-
 def create_video_thread(texto, nombre_salida, voz, logo_url, result_queue):
     try:
         logging.info("Iniciando creación del video en segundo plano...")
-        audio_segments = audio_segment_generator(texto,voz,logo_url)
-        
-        # Inicializar cliente de GCS
-        storage_client = storage.Client()
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(nombre_salida)
-        
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
-            temp_filename = temp_video_file.name
-            clips_list = []
-            for clip in audio_segments:
-                if clip is None:
-                    logging.error(f"Error: un clip es None, abortando la creación de vídeo")
-                    result_queue.put((False, "Error al generar video: Uno o más clips de audio o video son None.", None))
-                    return
-                clips_list.append(clip)
-            if not clips_list:
-                 logging.error(f"Error: clips_list está vacía, abortando la creación de vídeo")
-                 result_queue.put((False, "Error al generar video: No se han podido generar los clips de vídeo", None))
-                 return
+        video_files_lists_gen = audio_segment_generator(texto,voz,logo_url)
+        all_video_files = []
+        for video_files in video_files_lists_gen:
+          if video_files is None:
+            logging.error("Error, lista de vídeos temporales es None")
+            result_queue.put((False, "Error al generar video: No se han podido generar los vídeos temporales.", None))
+            return
+          all_video_files.extend(video_files)
 
-            video_final = concatenate_videoclips(clips_list, method="compose")
-            video_final.write_videofile(
-                temp_filename,
-                fps=24,
-                codec='libx264',
-                audio_codec='aac',
-                preset='ultrafast',
-                threads=4
-            )
-            video_final.close()
+        if not all_video_files:
+            logging.error("No se han generado ficheros temporales.")
+            result_queue.put((False, "Error al generar video: No se han generado los ficheros de vídeo temporales.", None))
+            return
+        # Use ffmpeg to concatenate video files
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_final_video_file:
+            temp_final_video_filename = temp_final_video_file.name
+            
+            # Crear el comando ffmpeg
+            command = ["ffmpeg", "-y"]
+            for file in all_video_files:
+                command.extend(["-i", file])
+            command.extend(["-filter_complex", "concat=n=" + str(len(all_video_files)) + ":v=1:a=1", temp_final_video_filename])
+            try:
+                subprocess.run(command, check=True, capture_output=True)
+                logging.info("Vídeo concatenado con ffmpeg correctamente")
+            except subprocess.CalledProcessError as e:
+                logging.error(f"Error al concatenar el vídeo con ffmpeg: {e} - {e.stderr.decode()}")
+                result_queue.put((False, f"Error al concatenar el vídeo con ffmpeg: {e}", None))
+                return
+
+            # Inicializar cliente de GCS
+            storage_client = storage.Client()
+            bucket = storage_client.bucket(BUCKET_NAME)
+            blob = bucket.blob(nombre_salida)
             
             # Subir video a GCS
-            blob.upload_from_filename(temp_filename)
-            os.remove(temp_filename)
+            blob.upload_from_filename(temp_final_video_filename)
+            os.remove(temp_final_video_filename)
+            for file in all_video_files:
+              os.remove(file)
             logging.info("Video subido a GCS exitosamente.")
             
         
