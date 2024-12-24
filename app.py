@@ -109,6 +109,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
+    video_buffer = BytesIO()
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -198,7 +199,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
         video_final.write_videofile(
-            nombre_salida,
+            video_buffer,
+            format='mp4',
             fps=24,
             codec='libx264',
             audio_codec='aac',
@@ -222,7 +224,9 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             except:
                 pass
         
-        return True, "Video generado exitosamente"
+        
+        video_buffer.seek(0) # Regresamos el puntero al inicio del buffer para poder leer el archivo
+        return True, "Video generado exitosamente", video_buffer
         
     except Exception as e:
         logging.error(f"Error: {str(e)}")
@@ -246,7 +250,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             except:
                 pass
         
-        return False, str(e)
+        return False, str(e), None
 
 
 def main():
@@ -263,13 +267,11 @@ def main():
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 nombre_salida_completo = f"{nombre_salida}.mp4"
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                success, message, video_buffer = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                 if success:
                   st.success(message)
-                  st.video(nombre_salida_completo)
-                  with open(nombre_salida_completo, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                    
+                  #st.video(video_buffer)
+                  st.download_button(label="Descargar video",data=video_buffer,file_name=nombre_salida_completo)
                   st.session_state.video_path = nombre_salida_completo
                 else:
                   st.error(f"Error al generar video: {message}")
