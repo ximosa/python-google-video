@@ -31,12 +31,19 @@ except KeyError as e:
     st.error(f"Error al cargar credenciales: {str(e)}")
 
 VOCES_DISPONIBLES = {
+    'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Journey-F': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Journey-O': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-A': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-B': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Neural2-C': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-D': texttospeech.SsmlVoiceGender.FEMALE,
     'es-ES-Neural2-E': texttospeech.SsmlVoiceGender.FEMALE,
-    'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE
+    'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Polyglot-1': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Standard-A': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
 }
 def dividir_texto(texto, max_caracteres=1500):
     frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
