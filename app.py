@@ -3,14 +3,13 @@ import os
 import json
 import logging
 import time
-from google.cloud import texttospeech, storage
+from google.cloud import texttospeech
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import tempfile
 import requests
 from io import BytesIO
-from tenacity import retry, stop_after_attempt, wait_exponential
 
 logging.basicConfig(level=logging.INFO)
 
@@ -44,32 +43,6 @@ VOCES_DISPONIBLES = {
     'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
 }
-def dividir_texto(texto, max_caracteres=5000):
-    palabras = texto.split()
-    chunks = []
-    chunk_actual = []
-    longitud_actual = 0
-    
-    for palabra in palabras:
-        if longitud_actual + len(palabra) > max_caracteres:
-            chunks.append(' '.join(chunk_actual))
-            chunk_actual = [palabra]
-            longitud_actual = len(palabra)
-        else:
-            chunk_actual.append(palabra)
-            longitud_actual += len(palabra)
-    
-    if chunk_actual:
-        chunks.append(' '.join(chunk_actual))
-    return chunks
-
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
-def sintetizar_voz_con_reintento(cliente, texto_entrada, voz, config_audio):
-    return cliente.synthesize_speech(
-        input=texto_entrada,
-        voice=voz,
-        audio_config=config_audio
-    )
 
 def create_text_image(text, size=(1280, 320), font_size=30, line_height=40):
     img = Image.new('RGB', size, 'black')
@@ -139,27 +112,24 @@ def create_subscription_image(logo_url, size=(1280, 320), font_size=60):
     return np.array(img)
 
 def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
-    SEGMENT_SIZE = 500
-    VIDEO_HEIGHT = 320
-    VIDEO_BITRATE = "1500k"
-    
     archivos_temp = []
     clips_audio = []
     clips_finales = []
+    video_final = None
     
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
             logging.info("Iniciando proceso de creación de video...")
-            chunks_texto = dividir_texto(texto)
+            frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
             client = texttospeech.TextToSpeechClient()
             tiempo_acumulado = 0
             
-            total_chunks = len(chunks_texto)
-            for i, chunk in enumerate(chunks_texto):
+            total_frases = len(frases)
+            for i, frase in enumerate(frases):
                 if progress_bar:
-                    progress_bar.progress((i + 1) / (total_chunks + 1))
+                    progress_bar.progress((i + 1) / (total_frases + 1))
                 
-                synthesis_input = texttospeech.SynthesisInput(text=chunk)
+                synthesis_input = texttospeech.SynthesisInput(text=frase)
                 voice = texttospeech.VoiceSelectionParams(
                     language_code="es-ES",
                     name=voz,
@@ -169,7 +139,11 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                     audio_encoding=texttospeech.AudioEncoding.MP3
                 )
                 
-                response = sintetizar_voz_con_reintento(client, synthesis_input, voice, audio_config)
+                response = client.synthesize_speech(
+                    input=synthesis_input,
+                    voice=voice,
+                    audio_config=audio_config
+                )
                 
                 temp_audio_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
                 archivos_temp.append(temp_audio_filename)
@@ -181,7 +155,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                 clips_audio.append(audio_clip)
                 
                 duracion = audio_clip.duration
-                text_img = create_text_image(chunk, size=(1280, VIDEO_HEIGHT))
+                text_img = create_text_image(frase)
                 txt_clip = (ImageClip(text_img)
                           .set_start(tiempo_acumulado)
                           .set_duration(duracion)
@@ -193,7 +167,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                 tiempo_acumulado += duracion
                 time.sleep(0.2)
 
-            subscribe_img = create_subscription_image(logo_url, size=(1280, VIDEO_HEIGHT))
+            subscribe_img = create_subscription_image(logo_url)
             subscribe_clip = (ImageClip(subscribe_img)
                             .set_start(tiempo_acumulado)
                             .set_duration(5)
@@ -210,19 +184,26 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
                 codec='libx264',
                 audio_codec='aac',
                 preset='ultrafast',
-                bitrate=VIDEO_BITRATE,
                 threads=4
             )
             
-            # Leer el archivo de video
             with open(output_path, 'rb') as video_file:
-                video_bytes = video_file.read()
+                video_data = video_file.read()
             
-            return True, "Video generado exitosamente", video_bytes
+            return True, "Video generado exitosamente", video_data
             
         except Exception as e:
             logging.error(f"Error en la creación de video: {str(e)}")
             return False, str(e), None
+        finally:
+            # Limpieza
+            for clip in clips_audio + clips_finales:
+                try:
+                    clip.close()
+                except:
+                    pass
+            if video_final:
+                video_final.close()
 
 def main():
     st.title("Creador de Videos Automático")
@@ -233,17 +214,12 @@ def main():
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
-        if len(texto) > 10000:
-            st.warning("Texto largo detectado - el procesamiento puede tomar más tiempo")
-            
         nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
         
         if st.button("Generar Video"):
             progress_bar = st.progress(0)
-            status_text = st.empty()
-            
             with st.spinner('Generando video...'):
-                success, message, video_bytes = create_simple_video(
+                success, message, video_data = create_simple_video(
                     texto, 
                     nombre_salida, 
                     voz_seleccionada, 
@@ -251,11 +227,11 @@ def main():
                     progress_bar
                 )
                 
-                if success and video_bytes:
+                if success and video_data:
                     st.success(message)
                     st.download_button(
                         label="Descargar Video",
-                        data=video_bytes,
+                        data=video_data,
                         file_name=f"{nombre_salida}.mp4",
                         mime="video/mp4"
                     )
