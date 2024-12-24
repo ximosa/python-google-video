@@ -10,6 +10,9 @@ import numpy as np
 import tempfile
 import requests
 from io import BytesIO
+import threading
+import queue
+from google.cloud import storage
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,6 +29,12 @@ try:
 except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
+
+# Variable de entorno para el bucket de GCS
+BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
+if not BUCKET_NAME:
+    logging.error("Variable de entorno GCS_BUCKET_NAME no configurada")
+    st.error("Variable de entorno GCS_BUCKET_NAME no configurada")
 
 VOCES_DISPONIBLES = {
     'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
@@ -105,14 +114,10 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
     return np.array(img)
 
-# Función de creación de video
-def create_simple_video(texto, nombre_salida, voz, logo_url):
+def audio_segment_generator(texto, voz, logo_url):
     archivos_temp = []
-    clips_audio = []
-    clips_finales = []
-    
     try:
-        logging.info("Iniciando proceso de creación de video...")
+        logging.info("Iniciando proceso de generación de audio...")
         frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
         client = texttospeech.TextToSpeechClient()
         
@@ -170,7 +175,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 out.write(response.audio_content)
             
             audio_clip = AudioFileClip(temp_filename)
-            clips_audio.append(audio_clip)
             duracion = audio_clip.duration
             
             text_img = create_text_image(segmento)
@@ -180,7 +184,12 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                       .set_position('center'))
             
             video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-            clips_finales.append(video_segment)
+            
+            yield video_segment
+            
+            audio_clip.close()
+            txt_clip.close()
+            video_segment.close()
             
             tiempo_acumulado += duracion
             time.sleep(0.2)
@@ -188,67 +197,59 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         # Añadir clip de suscripción
         subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
         duracion_subscribe = 5
-
         subscribe_clip = (ImageClip(subscribe_img)
                         .set_start(tiempo_acumulado)
                         .set_duration(duracion_subscribe)
                         .set_position('center'))
+        yield subscribe_clip
+        subscribe_clip.close()
 
-        clips_finales.append(subscribe_clip)
-        
-        video_final = concatenate_videoclips(clips_finales, method="compose")
-        
-        video_final.write_videofile(
-            nombre_salida,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            preset='ultrafast',
-            threads=4
-        )
-        
-        video_final.close()
-        
-        for clip in clips_audio:
-            clip.close()
-        
-        for clip in clips_finales:
-            clip.close()
-            
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
-            except:
-                pass
-        
-        return True, "Video generado exitosamente"
-        
     except Exception as e:
-        logging.error(f"Error: {str(e)}")
-        for clip in clips_audio:
-            try:
-                clip.close()
-            except:
-                pass
-                
-        for clip in clips_finales:
-            try:
-                clip.close()
-            except:
-                pass
-                
-        for temp_file in archivos_temp:
+        logging.error(f"Error en generador de audio: {str(e)}")
+        raise
+    finally:
+       for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
                     os.close(os.open(temp_file, os.O_RDONLY))
                     os.remove(temp_file)
             except:
                 pass
-        
-        return False, str(e)
 
+def create_video_thread(texto, nombre_salida, voz, logo_url, result_queue):
+    try:
+        logging.info("Iniciando creación del video en segundo plano...")
+        audio_segments = audio_segment_generator(texto,voz,logo_url)
+        
+        # Inicializar cliente de GCS
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(BUCKET_NAME)
+        blob = bucket.blob(nombre_salida)
+        
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
+            temp_filename = temp_video_file.name
+            video_final = concatenate_videoclips(list(audio_segments), method="compose")
+            video_final.write_videofile(
+                temp_filename,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                preset='ultrafast',
+                threads=4
+            )
+            video_final.close()
+            
+            # Subir video a GCS
+            blob.upload_from_filename(temp_filename)
+            os.remove(temp_filename)
+            logging.info("Video subido a GCS exitosamente.")
+            
+        
+        
+        result_queue.put((True, "Video generado y subido a GCS exitosamente", f"https://storage.googleapis.com/{BUCKET_NAME}/{nombre_salida}"))
+    except Exception as e:
+        logging.error(f"Error durante creación del video: {str(e)}")
+        result_queue.put((False, str(e),None))
 
 def main():
     st.title("Creador de Videos Automático")
@@ -259,27 +260,36 @@ def main():
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
-        nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
+        nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado.mp4")
         
         if st.button("Generar Video"):
-            with st.spinner('Generando video...'):
-                nombre_salida_completo = f"{nombre_salida}.mp4"
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                if success:
-                  st.success(message)
-                  st.video(nombre_salida_completo)
-                  with open(nombre_salida_completo, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                    
-                  st.session_state.video_path = nombre_salida_completo
-                else:
-                  st.error(f"Error al generar video: {message}")
+          with st.spinner('Generando video...'):
+            
+            result_queue = queue.Queue()
+            video_thread = threading.Thread(target=create_video_thread, 
+                                             args=(texto, nombre_salida, voz_seleccionada, logo_url, result_queue))
+            video_thread.start()
+            
+            while video_thread.is_alive():
+                time.sleep(1)
+            
+            success, message, video_url = result_queue.get()
+            if success:
+                st.session_state.video_url = video_url
+                st.success(message)
+                st.video(video_url)
+                st.markdown(f'<a href="{video_url}" target="_blank">Descargar video desde GCS</a>', unsafe_allow_html=True)
+            else:
+              st.error(f"Error al generar video: {message}")
 
-        if st.session_state.get("video_path"):
+        if st.session_state.get("video_url"):
+            st.success("Video disponible")
+            st.video(st.session_state.video_url)
+            st.markdown(f'<a href="{st.session_state.video_url}" target="_blank">Descargar video desde GCS</a>', unsafe_allow_html=True)
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     # Inicializar session state
-    if "video_path" not in st.session_state:
-        st.session_state.video_path = None
+    if "video_url" not in st.session_state:
+        st.session_state.video_url = None
     main()
