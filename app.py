@@ -186,15 +186,25 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             
             # Usar io.BytesIO para guardar el audio en memoria
             temp_audio_buffer = BytesIO(response.audio_content)
+            temp_audio_filename = os.path.join(temp_dir, f"temp_audio_{i}.mp3")
+            archivos_temp.append(temp_audio_filename)
 
+            try:
+               with open(temp_audio_filename, 'wb') as out_file:
+                   out_file.write(temp_audio_buffer.getvalue())
+               os.chmod(temp_audio_filename, 0o777)
+               logging.info(f"Archivo temporal de audio guardado en {temp_audio_filename}")
+            except Exception as e:
+                logging.error(f"Error al crear el archivo de audio temporal {temp_audio_filename}: {str(e)}")
+                raise
             
             audio_clip = None
             try:
-                audio_clip = AudioFileClip(temp_audio_buffer)
+                audio_clip = AudioFileClip(temp_audio_filename) # Usa el archivo temporal
                 clips_audio.append(audio_clip)
-                logging.info(f"Audio cargado en memoria: {temp_audio_buffer}")
+                logging.info(f"Audio cargado desde archivo temporal: {temp_audio_filename}")
             except Exception as e:
-                logging.error(f"Error al cargar el audio en memoria {temp_audio_buffer}: {str(e)}")
+                logging.error(f"Error al cargar el archivo de audio {temp_audio_filename}: {str(e)}")
                 raise
 
             duracion = audio_clip.duration
@@ -232,7 +242,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             codec='libx264',
             audio_codec='aac',
             preset='ultrafast',
-            bitrate="3000k", # Comprimir el video
+            bitrate="2000k", # Comprimir el video
             threads=4
         )
         
@@ -250,6 +260,15 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
         if video_final:
            video_final.close()
+        
+        # Limpiar archivos temporales de audio
+        for temp_file in archivos_temp:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                    logging.info(f"Archivo temporal de audio eliminado {temp_file}")
+            except:
+               logging.error(f"Error al eliminar el archivo de audio {temp_file}")
 
         # Leer el archivo en memoria (generador)
         def video_generator():
@@ -296,6 +315,15 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         if video_final:
            video_final.close()
             
+        # Limpiar archivos temporales de audio
+        for temp_file in archivos_temp:
+            try:
+                if os.path.exists(temp_file):
+                   os.remove(temp_file)
+                   logging.info(f"Archivo temporal de audio eliminado {temp_file}")
+            except:
+               logging.error(f"Error al eliminar el archivo de audio {temp_file}")
+        
         return False, str(e), None, None
 
 def main():
