@@ -132,6 +132,10 @@ def create_subscription_image(logo_url, size=(1280, 320), font_size=60):
     return np.array(img)
 
 def create_simple_video(texto, nombre_salida, voz, logo_url, progress_bar=None):
+    OUTPUT_DIR = "/tmp/videos"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.chmod(OUTPUT_DIR, 0o777)
+
     archivos_temp = []
     clips_audio = []
     clips_finales = []
