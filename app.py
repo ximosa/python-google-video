@@ -3,17 +3,13 @@ import os
 import json
 import logging
 import time
-import subprocess
 from google.cloud import texttospeech
-from moviepy.editor import AudioFileClip, ImageClip
+from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import tempfile
 import requests
 from io import BytesIO
-import threading
-import queue
-from google.cloud import storage
 
 logging.basicConfig(level=logging.INFO)
 
