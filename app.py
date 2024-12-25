@@ -31,12 +31,6 @@ except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
 
-# Variable de entorno para el bucket de GCS
-BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
-if not BUCKET_NAME:
-    logging.error("Variable de entorno GCS_BUCKET_NAME no configurada")
-    st.error("Variable de entorno GCS_BUCKET_NAME no configurada")
-
 VOCES_DISPONIBLES = {
     'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Journey-F': texttospeech.SsmlVoiceGender.FEMALE,
