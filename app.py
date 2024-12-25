@@ -54,79 +54,75 @@ VOCES_DISPONIBLES = {
 }
 
 def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
-    try:
-      img = Image.new('RGB', size, 'black')
-      draw = ImageDraw.Draw(img)
-      font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
+    img = Image.new('RGB', size, 'black')
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
 
-      words = text.split()
-      lines = []
-      current_line = []
+    words = text.split()
+    lines = []
+    current_line = []
 
-      for word in words:
-          current_line.append(word)
-          test_line = ' '.join(current_line)
-          left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
-          if right > size[0] - 60:
-              current_line.pop()
-              lines.append(' '.join(current_line))
-              current_line = [word]
-      lines.append(' '.join(current_line))
+    for word in words:
+        current_line.append(word)
+        test_line = ' '.join(current_line)
+        left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
+        if right > size[0] - 60:
+            current_line.pop()
+            lines.append(' '.join(current_line))
+            current_line = [word]
+    lines.append(' '.join(current_line))
 
-      total_height = len(lines) * line_height
-      y = (size[1] - total_height) // 2
+    total_height = len(lines) * line_height
+    y = (size[1] - total_height) // 2
 
-      for line in lines:
-          left, top, right, bottom = draw.textbbox((0, 0), line, font=font)
-          x = (size[0] - (right - left)) // 2
-          draw.text((x, y), line, font=font, fill="white")
-          y += line_height
+    for line in lines:
+        left, top, right, bottom = draw.textbbox((0, 0), line, font=font)
+        x = (size[0] - (right - left)) // 2
+        draw.text((x, y), line, font=font, fill="white")
+        y += line_height
 
-      return np.array(img)
-    except Exception as e:
-        logging.error(f"Error en create_text_image: {str(e)}")
-        return None
+    return np.array(img)
 
 # Nueva función para crear la imagen de suscripción
 def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
+    img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+
+    # Cargar logo del canal
     try:
-      img = Image.new('RGB', size, (255, 0, 0))  # Fondo rojo
-      draw = ImageDraw.Draw(img)
-      font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
-
-      # Cargar logo del canal
-      try:
-          response = requests.get(logo_url)
-          response.raise_for_status()
-          logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-          logo_img = logo_img.resize((100,100))
-          logo_position = (20,20)
-          img.paste(logo_img,logo_position,logo_img)
-      except Exception as e:
-          logging.error(f"Error al cargar el logo: {str(e)}")
-          
-      text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
-      left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
-      x1 = (size[0] - (right1 - left1)) // 2
-      y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
-      draw.text((x1, y1), text1, font=font, fill="white")
-      
-      font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
-      text2 = "Dale like y activa la campana 🔔"
-      left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
-      x2 = (size[0] - (right2 - left2)) // 2
-      y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
-      draw.text((x2,y2), text2, font=font2, fill="white")
-
-      return np.array(img)
+        response = requests.get(logo_url)
+        response.raise_for_status()
+        logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
+        logo_img = logo_img.resize((100,100))
+        logo_position = (20,20)
+        img.paste(logo_img,logo_position,logo_img)
     except Exception as e:
-      logging.error(f"Error en create_subscription_image: {str(e)}")
-      return None
-def audio_segment_generator(texto, voz, logo_url):
+        logging.error(f"Error al cargar el logo: {str(e)}")
+        
+    text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
+    left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
+    x1 = (size[0] - (right1 - left1)) // 2
+    y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
+    draw.text((x1, y1), text1, font=font, fill="white")
+    
+    font2 = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size//2)
+    text2 = "Dale like y activa la campana 🔔"
+    left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
+    x2 = (size[0] - (right2 - left2)) // 2
+    y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
+    draw.text((x2,y2), text2, font=font2, fill="white")
+
+    return np.array(img)
+
+# Función de creación de video
+def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
-    video_files_list = []
+    clips_audio = []
+    clips_finales = []
+    
     try:
-        logging.info("Iniciando proceso de generación de audio...")
+        logging.info("Iniciando proceso de creación de video...")
         frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
         client = texttospeech.TextToSpeechClient()
         
@@ -176,8 +172,7 @@ def audio_segment_generator(texto, voz, logo_url):
                     raise
             
             if retry_count > max_retries:
-                logging.error(f"Máximos intentos de reintento alcanzados para segmento: {segmento}")
-                continue
+                raise Exception("Maximos intentos de reintento alcanzado")
             
             temp_filename = f"temp_audio_{i}.mp3"
             archivos_temp.append(temp_filename)
@@ -185,156 +180,85 @@ def audio_segment_generator(texto, voz, logo_url):
                 out.write(response.audio_content)
             
             audio_clip = AudioFileClip(temp_filename)
+            clips_audio.append(audio_clip)
             duracion = audio_clip.duration
             
             text_img = create_text_image(segmento)
-            if text_img is None:
-                logging.error(f"Error: la imagen de texto es None para segmento: {segmento}")
-                audio_clip.close()
-                continue
-            
             txt_clip = (ImageClip(text_img)
                       .set_start(tiempo_acumulado)
                       .set_duration(duracion)
                       .set_position('center'))
             
             video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-            
-            if video_segment is None:
-              logging.error(f"Error al crear video segmento. video_segment es None")
-              audio_clip.close()
-              txt_clip.close()
-              continue
-            
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
-                video_segment.write_videofile(
-                    temp_video_file.name,
-                    fps=24,
-                    codec='libx264',
-                    audio_codec='aac',
-                    preset='ultrafast',
-                    threads=4
-                )
-                video_files_list.append(temp_video_file.name)
-            
-            audio_clip.close()
-            txt_clip.close()
-            video_segment.close()
+            clips_finales.append(video_segment)
             
             tiempo_acumulado += duracion
             time.sleep(0.2)
 
         # Añadir clip de suscripción
         subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
-        if subscribe_img is None:
-          logging.error(f"Error: la imagen de subscripción es None")
-        else:
-          duracion_subscribe = 5
-          subscribe_clip = (ImageClip(subscribe_img)
-                          .set_start(tiempo_acumulado)
-                          .set_duration(duracion_subscribe)
-                          .set_position('center'))
-          if subscribe_clip is None:
-            logging.error("Error al crear el clip de suscripción: subscribe_clip es None.")
-          else:
-            with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_video_file:
-                subscribe_clip.write_videofile(
-                  temp_video_file.name,
-                    fps=24,
-                    codec='libx264',
-                    audio_codec='aac',
-                    preset='ultrafast',
-                    threads=4
-                )
-                video_files_list.append(temp_video_file.name)
-            subscribe_clip.close()
-        yield video_files_list
-    except Exception as e:
-        logging.error(f"Error en generador de audio: {str(e)}")
-        raise
-    finally:
-       for temp_file in archivos_temp:
+        duracion_subscribe = 5
+
+        subscribe_clip = (ImageClip(subscribe_img)
+                        .set_start(tiempo_acumulado)
+                        .set_duration(duracion_subscribe)
+                        .set_position('center'))
+
+        clips_finales.append(subscribe_clip)
+        
+        video_final = concatenate_videoclips(clips_finales, method="compose")
+        
+        video_final.write_videofile(
+            nombre_salida,
+            fps=24,
+            codec='libx264',
+            audio_codec='aac',
+            preset='ultrafast',
+            threads=4
+        )
+        
+        video_final.close()
+        
+        for clip in clips_audio:
+            clip.close()
+        
+        for clip in clips_finales:
+            clip.close()
+            
+        for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
                     os.close(os.open(temp_file, os.O_RDONLY))
                     os.remove(temp_file)
             except:
                 pass
-def create_video_thread(texto, nombre_salida, voz, logo_url, result_queue):
-    try:
-        logging.info("Iniciando creación del video en segundo plano...")
-        video_files_lists_gen = audio_segment_generator(texto,voz,logo_url)
         
-        all_video_files = []
-        for video_files in video_files_lists_gen:
-          if video_files is None:
-            logging.error("Error, lista de vídeos temporales es None")
-            result_queue.put((False, "Error al generar video: No se han podido generar los vídeos temporales.", None))
-            return
-          all_video_files.extend(video_files)
-
-        if not all_video_files:
-            logging.error("No se han generado ficheros temporales.")
-            result_queue.put((False, "Error al generar video: No se han generado los ficheros de vídeo temporales.", None))
-            return
-          
-        # Concatenar archivos en lotes
-        batch_size = 10
-        batch_files = [all_video_files[i:i + batch_size] for i in range(0, len(all_video_files), batch_size)]
-        intermediate_files = []
-
-        for i, batch in enumerate(batch_files):
-            with tempfile.NamedTemporaryFile(suffix=f"intermediate_{i}.mp4", delete=False) as temp_intermediate_file:
-              temp_intermediate_filename = temp_intermediate_file.name
-              command = ["ffmpeg", "-y"]
-              for file in batch:
-                  command.extend(["-i", file])
-              command.extend(["-filter_complex", "concat=n=" + str(len(batch)) + ":v=1:a=1", temp_intermediate_filename])
-              try:
-                  subprocess.run(command, check=True, capture_output=True)
-                  logging.info(f"Lote {i} concatenado con ffmpeg correctamente")
-                  intermediate_files.append(temp_intermediate_filename)
-              except subprocess.CalledProcessError as e:
-                  logging.error(f"Error al concatenar el lote {i} con ffmpeg: {e} - {e.stderr.decode()}")
-                  result_queue.put((False, f"Error al concatenar el lote {i} con ffmpeg: {e}", None))
-                  return
+        return True, "Video generado exitosamente"
         
-        # Concatenar archivos intermedios
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_final_video_file:
-          temp_final_video_filename = temp_final_video_file.name
-            
-          command = ["ffmpeg", "-y"]
-          for file in intermediate_files:
-             command.extend(["-i", file])
-          command.extend(["-filter_complex", "concat=n=" + str(len(intermediate_files)) + ":v=1:a=1", temp_final_video_filename])
-          try:
-              subprocess.run(command, check=True, capture_output=True)
-              logging.info("Vídeo concatenado con ffmpeg correctamente")
-          except subprocess.CalledProcessError as e:
-              logging.error(f"Error al concatenar el vídeo con ffmpeg: {e} - {e.stderr.decode()}")
-              result_queue.put((False, f"Error al concatenar el vídeo con ffmpeg: {e}", None))
-              return
-          
-          # Inicializar cliente de GCS
-          storage_client = storage.Client()
-          bucket = storage_client.bucket(BUCKET_NAME)
-          blob = bucket.blob(nombre_salida)
-            
-          # Subir video a GCS
-          blob.upload_from_filename(temp_final_video_filename)
-          os.remove(temp_final_video_filename)
-          for file in all_video_files:
-            os.remove(file)
-          for file in intermediate_files:
-            os.remove(file)
-          logging.info("Video subido a GCS exitosamente.")
-          
-        
-        
-        result_queue.put((True, "Video generado y subido a GCS exitosamente", f"https://storage.googleapis.com/{BUCKET_NAME}/{nombre_salida}"))
     except Exception as e:
-        logging.error(f"Error durante creación del video: {str(e)}")
-        result_queue.put((False, str(e),None))
+        logging.error(f"Error: {str(e)}")
+        for clip in clips_audio:
+            try:
+                clip.close()
+            except:
+                pass
+                
+        for clip in clips_finales:
+            try:
+                clip.close()
+            except:
+                pass
+                
+        for temp_file in archivos_temp:
+            try:
+                if os.path.exists(temp_file):
+                    os.close(os.open(temp_file, os.O_RDONLY))
+                    os.remove(temp_file)
+            except:
+                pass
+        
+        return False, str(e)
+
 
 def main():
     st.title("Creador de Videos Automático")
@@ -345,36 +269,27 @@ def main():
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
-        nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado.mp4")
+        nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
         
         if st.button("Generar Video"):
-          with st.spinner('Generando video...'):
-            
-            result_queue = queue.Queue()
-            video_thread = threading.Thread(target=create_video_thread, 
-                                             args=(texto, nombre_salida, voz_seleccionada, logo_url, result_queue))
-            video_thread.start()
-            
-            while video_thread.is_alive():
-                time.sleep(1)
-            
-            success, message, video_url = result_queue.get()
-            if success:
-                st.session_state.video_url = video_url
-                st.success(message)
-                st.video(video_url)
-                st.markdown(f'<a href="{video_url}" target="_blank">Descargar video desde GCS</a>', unsafe_allow_html=True)
-            else:
-              st.error(f"Error al generar video: {message}")
+            with st.spinner('Generando video...'):
+                nombre_salida_completo = f"{nombre_salida}.mp4"
+                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                if success:
+                  st.success(message)
+                  st.video(nombre_salida_completo)
+                  with open(nombre_salida_completo, 'rb') as file:
+                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                    
+                  st.session_state.video_path = nombre_salida_completo
+                else:
+                  st.error(f"Error al generar video: {message}")
 
-        if st.session_state.get("video_url"):
-            st.success("Video disponible")
-            st.video(st.session_state.video_url)
-            st.markdown(f'<a href="{st.session_state.video_url}" target="_blank">Descargar video desde GCS</a>', unsafe_allow_html=True)
+        if st.session_state.get("video_path"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     # Inicializar session state
-    if "video_url" not in st.session_state:
-        st.session_state.video_url = None
+    if "video_path" not in st.session_state:
+        st.session_state.video_path = None
     main()
