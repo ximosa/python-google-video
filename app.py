@@ -11,21 +11,12 @@ import tempfile
 import requests
 from io import BytesIO
 
+
 logging.basicConfig(level=logging.INFO)
 
-# Configuración de credenciales GCP
-try:
-    credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
-    if credentials_str:
-        credentials = json.loads(credentials_str)
-        with open("/tmp/google_credentials.json", "w") as f:
-            json.dump(credentials, f)
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_credentials.json"
-    else:
-        raise KeyError("Variable de entorno GOOGLE_CREDENTIALS no configurada")
-except KeyError as e:
-    logging.error(f"Error al cargar credenciales: {str(e)}")
-    st.error(f"Error al cargar credenciales: {str(e)}")
+# Configuración de credenciales GCP (asume que GOOGLE_APPLICATION_CREDENTIALS está configurada)
+if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+  st.error("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS no está configurada")
 
 VOCES_DISPONIBLES = {
     'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
@@ -42,6 +33,7 @@ VOCES_DISPONIBLES = {
     'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
 }
+
 def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
     img = Image.new('RGB', size, 'black')
     draw = ImageDraw.Draw(img)
@@ -163,7 +155,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
             
-            temp_filename = f"temp_audio_{i}.mp3"
+            temp_filename = f"/tmp/temp_audio_{i}.mp3"
             archivos_temp.append(temp_filename)
             with open(temp_filename, "wb") as out:
                 out.write(response.audio_content)
@@ -262,7 +254,7 @@ def main():
         
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
-                nombre_salida_completo = f"{nombre_salida}.mp4"
+                nombre_salida_completo = f"/tmp/{nombre_salida}.mp4"
                 success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                 if success:
                   st.success(message)
@@ -282,4 +274,3 @@ if __name__ == "__main__":
     if "video_path" not in st.session_state:
         st.session_state.video_path = None
     main()
-
