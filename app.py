@@ -42,7 +42,6 @@ VOCES_DISPONIBLES = {
     'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE
 }
-
 def create_text_image(text, size=(1280, 360), font_size=30, line_height=40):
     img = Image.new('RGB', size, 'black')
     draw = ImageDraw.Draw(img)
@@ -283,3 +282,4 @@ if __name__ == "__main__":
     if "video_path" not in st.session_state:
         st.session_state.video_path = None
     main()
+
