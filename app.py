@@ -11,7 +11,6 @@ import tempfile
 import requests
 from io import BytesIO
 
-
 logging.basicConfig(level=logging.INFO)
 
 # Configuración de credenciales GCP (asume que GOOGLE_APPLICATION_CREDENTIALS está configurada)
@@ -98,6 +97,7 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
 # Función de creación de video
 def create_simple_video(texto, nombre_salida, voz, logo_url):
+    logging.info("create_simple_video - Inicia")
     archivos_temp = []
     clips_audio = []
     clips_finales = []
@@ -138,11 +138,13 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             
             while retry_count <= max_retries:
               try:
+                logging.info(f"Texto a audio - Segmento {i+1} - Intento {retry_count + 1}")
                 response = client.synthesize_speech(
                     input=synthesis_input,
                     voice=voice,
                     audio_config=audio_config
                 )
+                logging.info(f"Texto a audio exitoso - Segmento {i+1} - Intento {retry_count + 1}")
                 break
               except Exception as e:
                   logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
@@ -155,26 +157,32 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
             
-            temp_filename = f"/tmp/temp_audio_{i}.mp3"
-            archivos_temp.append(temp_filename)
-            with open(temp_filename, "wb") as out:
-                out.write(response.audio_content)
-            
-            audio_clip = AudioFileClip(temp_filename)
-            clips_audio.append(audio_clip)
-            duracion = audio_clip.duration
-            
-            text_img = create_text_image(segmento)
-            txt_clip = (ImageClip(text_img)
-                      .set_start(tiempo_acumulado)
-                      .set_duration(duracion)
-                      .set_position('center'))
-            
-            video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-            clips_finales.append(video_segment)
-            
-            tiempo_acumulado += duracion
-            time.sleep(0.2)
+            try:
+                logging.info(f"Creando imagen y audio - Segmento {i+1}")
+                temp_filename = f"/tmp/temp_audio_{i}.mp3"
+                archivos_temp.append(temp_filename)
+                with open(temp_filename, "wb") as out:
+                    out.write(response.audio_content)
+                
+                audio_clip = AudioFileClip(temp_filename)
+                clips_audio.append(audio_clip)
+                duracion = audio_clip.duration
+                
+                text_img = create_text_image(segmento)
+                txt_clip = (ImageClip(text_img)
+                          .set_start(tiempo_acumulado)
+                          .set_duration(duracion)
+                          .set_position('center'))
+                
+                video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+                clips_finales.append(video_segment)
+                
+                tiempo_acumulado += duracion
+                time.sleep(0.2)
+                logging.info(f"Creacion exitosa imagen y audio - Segmento {i+1}")
+            except Exception as e:
+                 logging.error(f"Error creando imagen y audio - Segmento {i+1}: {str(e)}")
+                 raise
 
         # Añadir clip de suscripción
         subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
@@ -214,10 +222,11 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             except:
                 pass
         
+        logging.info("create_simple_video - Finaliza con exito")
         return True, "Video generado exitosamente"
         
     except Exception as e:
-        logging.error(f"Error: {str(e)}")
+        logging.error(f"Error en create_simple_video: {str(e)}")
         for clip in clips_audio:
             try:
                 clip.close()
@@ -254,9 +263,11 @@ def main():
         
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
+                logging.info("Generar Video - boton presionado")
                 nombre_salida_completo = f"/tmp/{nombre_salida}.mp4"
                 success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                 if success:
+                  logging.info("Generar Video - video generado con exito")
                   st.success(message)
                   st.video(nombre_salida_completo)
                   with open(nombre_salida_completo, 'rb') as file:
@@ -264,6 +275,7 @@ def main():
                     
                   st.session_state.video_path = nombre_salida_completo
                 else:
+                  logging.error(f"Generar Video - Error: {message}")
                   st.error(f"Error al generar video: {message}")
 
         if st.session_state.get("video_path"):
