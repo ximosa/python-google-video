@@ -13,9 +13,21 @@ from io import BytesIO
 
 logging.basicConfig(level=logging.INFO)
 
-# Configuración de credenciales GCP (asume que GOOGLE_APPLICATION_CREDENTIALS está configurada)
-if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
-  st.error("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS no está configurada")
+# Configuración de credenciales GCP
+try:
+    credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
+    if credentials_str:
+        credentials = json.loads(credentials_str)
+        with open("/tmp/google_credentials.json", "w") as f:
+            json.dump(credentials, f)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_credentials.json"
+    else:
+        if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+           raise KeyError("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS no configurada")
+except KeyError as e:
+    logging.error(f"Error al cargar credenciales: {str(e)}")
+    st.error(f"Error al cargar credenciales: {str(e)}")
+
 
 VOCES_DISPONIBLES = {
     'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
@@ -217,7 +229,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
                     os.remove(temp_file)
             except:
                 pass
@@ -242,7 +253,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
                     os.remove(temp_file)
             except:
                 pass
