@@ -281,7 +281,7 @@ def main():
                   st.success(message)
                   st.video(nombre_salida_completo)
                   with open(nombre_salida_completo, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                    st.download_button(label="Descargar video",data=file,file_name=f"{nombre_salida}.mp4")
                     
                   st.session_state.video_path = nombre_salida_completo
                 else:
