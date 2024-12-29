@@ -117,7 +117,6 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
 # Función de creación de video
 def create_simple_video(texto, nombre_salida, voz, logo_url):
-    archivos_temp = []
     clips_audio = []
     clips_finales = []
     
@@ -174,26 +173,24 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
             
-            temp_filename = f"temp_audio_{i}.mp3"
-            archivos_temp.append(temp_filename)
-            with open(temp_filename, "wb") as out:
-                out.write(response.audio_content)
-            
-            audio_clip = AudioFileClip(temp_filename)
-            clips_audio.append(audio_clip)
-            duracion = audio_clip.duration
-            
-            text_img = create_text_image(segmento)
-            txt_clip = (ImageClip(text_img)
-                      .set_start(tiempo_acumulado)
-                      .set_duration(duracion)
-                      .set_position('center'))
-            
-            video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-            clips_finales.append(video_segment)
-            
-            tiempo_acumulado += duracion
-            time.sleep(0.2)
+            # Usar tempfile para el archivo de audio
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=True) as temp_audio_file:
+                temp_audio_file.write(response.audio_content)
+                audio_clip = AudioFileClip(temp_audio_file.name)
+                clips_audio.append(audio_clip)
+                duracion = audio_clip.duration
+                
+                text_img = create_text_image(segmento)
+                txt_clip = (ImageClip(text_img)
+                        .set_start(tiempo_acumulado)
+                        .set_duration(duracion)
+                        .set_position('center'))
+                
+                video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+                clips_finales.append(video_segment)
+                
+                tiempo_acumulado += duracion
+                time.sleep(0.2)
 
         # Añadir clip de suscripción
         subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
@@ -208,32 +205,26 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
-        video_final.write_videofile(
-            nombre_salida,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            preset='ultrafast',
-            threads=4
-        )
-        
-        video_final.close()
-        
-        for clip in clips_audio:
-            clip.close()
-        
-        for clip in clips_finales:
-            clip.close()
+        # Usar tempfile para el archivo de video
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=True) as temp_video_file:
+            video_final.write_videofile(
+                temp_video_file.name,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                preset='ultrafast',
+                threads=4
+            )
             
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
-            except:
-                pass
-        
-        return True, "Video generado exitosamente"
+            video_final.close()
+            
+            for clip in clips_audio:
+              clip.close()
+            
+            for clip in clips_finales:
+              clip.close()
+            
+            return True, "Video generado exitosamente", temp_video_file.name
         
     except Exception as e:
         logging.error(f"Error: {str(e)}")
@@ -248,16 +239,8 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 clip.close()
             except:
                 pass
-                
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
-            except:
-                pass
-        
-        return False, str(e)
+            
+        return False, str(e), None
 
 
 def main():
@@ -274,14 +257,14 @@ def main():
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 nombre_salida_completo = f"{nombre_salida}.mp4"
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                success, message, video_path = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                 if success:
                   st.success(message)
-                  st.video(nombre_salida_completo)
-                  with open(nombre_salida_completo, 'rb') as file:
+                  st.video(video_path)
+                  with open(video_path, 'rb') as file:
                     st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
                     
-                  st.session_state.video_path = nombre_salida_completo
+                  st.session_state.video_path = video_path
                 else:
                   st.error(f"Error al generar video: {message}")
 
