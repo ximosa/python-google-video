@@ -254,7 +254,7 @@ def main():
         except:
            pass
         st.session_state.video_path = None
-    if "audio_files" in st.session_state:
+    if "audio_files" in st.session_state and st.session_state.audio_files is not None:
         for file_path in st.session_state.audio_files:
           try:
              os.close(os.open(file_path, os.O_RDONLY))
