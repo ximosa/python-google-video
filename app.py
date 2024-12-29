@@ -28,7 +28,6 @@ except KeyError as e:
     logging.error(f"Error al cargar credenciales: {str(e)}")
     st.error(f"Error al cargar credenciales: {str(e)}")
 
-
 VOCES_DISPONIBLES = {
     'es-ES-Journey-D': texttospeech.SsmlVoiceGender.MALE,
     'es-ES-Journey-F': texttospeech.SsmlVoiceGender.FEMALE,
@@ -106,17 +105,6 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     draw.text((x2,y2), text2, font=font2, fill="white")
 
     return np.array(img)
-
-# Nueva función para la prueba de escritura
-def test_write_file():
-    try:
-        with open("/tmp/test.txt", "w") as f:
-            f.write("Esto es una prueba.")
-        logging.info("Archivo de prueba creado correctamente en /tmp")
-        return True
-    except Exception as e:
-        logging.error(f"Error al crear archivo de prueba: {e}")
-        return False
 
 
 # Función de creación de video
@@ -221,18 +209,17 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
-        try:
-            video_final.write_videofile(
-                nombre_salida,
-                fps=24,
-                codec='libx264',
-                audio_codec='aac',
-                preset='ultrafast',
-                threads=4
+        
+        # Convertir el video a bytes
+        video_bytes = video_final.write_videofile(
+            None,
+            fps=24,
+            codec='libx264',
+            audio_codec='aac',
+            preset='ultrafast',
+            threads=4,
+            logger=None
             )
-        except Exception as e:
-            logging.error(f"Error al escribir el archivo de video: {e}")
-            raise
 
         video_final.close()
         
@@ -250,7 +237,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
         
         logging.info("create_simple_video - Finaliza con exito")
-        return True, "Video generado exitosamente"
+        return True, video_bytes
         
     except Exception as e:
         logging.error(f"Error en create_simple_video: {str(e)}")
@@ -290,23 +277,16 @@ def main():
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 logging.info("Generar Video - boton presionado")
-                nombre_salida_completo = f"/tmp/{nombre_salida}.mp4"
-                
-                if test_write_file():  # Primero, verifica si puedes escribir en /tmp
-                  success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                  if success:
-                      logging.info("Generar Video - video generado con exito")
-                      st.success(message)
-                      st.video(nombre_salida_completo)
-                      with open(nombre_salida_completo, 'rb') as file:
-                          st.download_button(label="Descargar video",data=file,file_name=f"{nombre_salida}.mp4")  # Utiliza el nombre correcto
+                success, video_bytes = create_simple_video(texto, nombre_salida, voz_seleccionada, logo_url)
+                if success:
+                    logging.info("Generar Video - video generado con exito")
+                    st.success("Video generado exitosamente")
+                    st.video(video_bytes)
+                    st.download_button(label="Descargar video", data=video_bytes, file_name=f"{nombre_salida}.mp4", mime="video/mp4")
                       
-                      st.session_state.video_path = nombre_salida_completo
-                  else:
-                      logging.error(f"Generar Video - Error: {message}")
-                      st.error(f"Error al generar video: {message}")
                 else:
-                  st.error("No se pudo escribir en /tmp, verifica los permisos")
+                    logging.error(f"Generar Video - Error: {video_bytes}")
+                    st.error(f"Error al generar video: {video_bytes}")
 
 
         if st.session_state.get("video_path"):
