@@ -242,6 +242,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, bucket_name="datosb
             raise
         
         try:
+            logging.info("Iniciando concatenación de clips con moviepy...")
             video_final = concatenate_videoclips(clips_finales, method="compose")
         except Exception as e:
           logging.error(f"Error al concatenar clips: {str(e)}")
@@ -260,12 +261,13 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, bucket_name="datosb
         # Usar tempfile para el archivo de video
         try:
            video_temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+           logging.info(f"Iniciando creación de video en: {video_temp_file.name}")
            video_final.write_videofile(
                 video_temp_file.name,
                 fps=24,
                 codec='libx264',
                 audio_codec='aac',
-                preset='ultrafast',
+                preset='fast', #hemos cambiado ultrafast por fast, puedes probar medium
                 threads=4
             )
         
