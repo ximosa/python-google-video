@@ -283,10 +283,10 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, bucket_name="datosb
            try:
              storage_client = storage.Client()
              bucket = storage_client.bucket(bucket_name)
-             blob = bucket.blob(f"{nombre_salida}.mp4")
-             logging.info(f"Subiendo video a gs://{bucket_name}/{nombre_salida}.mp4")
+             blob = bucket.blob(f"videos/{nombre_salida}.mp4")
+             logging.info(f"Subiendo video a gs://{bucket_name}/videos/{nombre_salida}.mp4")
              blob.upload_from_filename(video_temp_file.name)
-             logging.info(f"Video subido correctamente a gs://{bucket_name}/{nombre_salida}.mp4")
+             logging.info(f"Video subido correctamente a gs://{bucket_name}/videos/{nombre_salida}.mp4")
              blob.make_public()
              url_video = blob.public_url
              logging.info(f"URL del video: {url_video}")
