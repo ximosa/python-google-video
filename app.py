@@ -3,22 +3,31 @@ import os
 import json
 import logging
 import time
+import re
 from google.cloud import texttospeech
 from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
-import tempfile
 import requests
 from io import BytesIO
+import tempfile
 
 logging.basicConfig(level=logging.INFO)
 
-# Cargar credenciales de GCP desde secrets
-credentials = dict(st.secrets.gcp_service_account)
-with open("google_credentials.json", "w") as f:
-    json.dump(credentials, f)
-
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_credentials.json"
+# Configuración de credenciales GCP
+try:
+    credentials_str = os.environ.get("GOOGLE_CREDENTIALS")
+    if credentials_str:
+        credentials = json.loads(credentials_str)
+        with open("/tmp/google_credentials.json", "w") as f:
+            json.dump(credentials, f)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "/tmp/google_credentials.json"
+    else:
+        if "GOOGLE_APPLICATION_CREDENTIALS" not in os.environ:
+           raise KeyError("Variable de entorno GOOGLE_APPLICATION_CREDENTIALS no configurada")
+except KeyError as e:
+    logging.error(f"Error al cargar credenciales: {str(e)}")
+    st.error(f"Error al cargar credenciales: {str(e)}")
 
 # Configuración de voces
 VOCES_DISPONIBLES = {
