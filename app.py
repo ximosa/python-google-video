@@ -107,6 +107,18 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
 
     return np.array(img)
 
+# Nueva función para la prueba de escritura
+def test_write_file():
+    try:
+        with open("/tmp/test.txt", "w") as f:
+            f.write("Esto es una prueba.")
+        logging.info("Archivo de prueba creado correctamente en /tmp")
+        return True
+    except Exception as e:
+        logging.error(f"Error al crear archivo de prueba: {e}")
+        return False
+
+
 # Función de creación de video
 def create_simple_video(texto, nombre_salida, voz, logo_url):
     logging.info("create_simple_video - Inicia")
@@ -209,15 +221,19 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
-        video_final.write_videofile(
-            nombre_salida,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            preset='ultrafast',
-            threads=4
-        )
-        
+        try:
+            video_final.write_videofile(
+                nombre_salida,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                preset='ultrafast',
+                threads=4
+            )
+        except Exception as e:
+            logging.error(f"Error al escribir el archivo de video: {e}")
+            raise
+
         video_final.close()
         
         for clip in clips_audio:
@@ -275,18 +291,23 @@ def main():
             with st.spinner('Generando video...'):
                 logging.info("Generar Video - boton presionado")
                 nombre_salida_completo = f"/tmp/{nombre_salida}.mp4"
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                if success:
-                  logging.info("Generar Video - video generado con exito")
-                  st.success(message)
-                  st.video(nombre_salida_completo)
-                  with open(nombre_salida_completo, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                    
-                  st.session_state.video_path = nombre_salida_completo
+                
+                if test_write_file():  # Primero, verifica si puedes escribir en /tmp
+                  success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
+                  if success:
+                      logging.info("Generar Video - video generado con exito")
+                      st.success(message)
+                      st.video(nombre_salida_completo)
+                      with open(nombre_salida_completo, 'rb') as file:
+                          st.download_button(label="Descargar video",data=file,file_name=f"{nombre_salida}.mp4")  # Utiliza el nombre correcto
+                      
+                      st.session_state.video_path = nombre_salida_completo
+                  else:
+                      logging.error(f"Generar Video - Error: {message}")
+                      st.error(f"Error al generar video: {message}")
                 else:
-                  logging.error(f"Generar Video - Error: {message}")
-                  st.error(f"Error al generar video: {message}")
+                  st.error("No se pudo escribir en /tmp, verifica los permisos")
+
 
         if st.session_state.get("video_path"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
