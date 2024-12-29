@@ -11,6 +11,7 @@ import numpy as np
 import requests
 from io import BytesIO
 import tempfile
+from google.cloud import storage
 
 logging.basicConfig(level=logging.INFO)
 
@@ -116,7 +117,7 @@ def create_subscription_image(logo_url,size=(1280, 720), font_size=60):
     return np.array(img)
 
 # Función de creación de video
-def create_simple_video(texto, nombre_salida, voz, logo_url):
+def create_simple_video(texto, nombre_salida, voz, logo_url, bucket_name="datosblog-4095b.appspot.com"):
     clips_audio = []
     clips_finales = []
     video_temp_file = None
@@ -175,73 +176,148 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 raise Exception("Maximos intentos de reintento alcanzado")
             
             # Usar tempfile para el archivo de audio
-            temp_audio_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-            temp_audio_file.write(response.audio_content)
-            audio_clip = AudioFileClip(temp_audio_file.name)
-            clips_audio.append(audio_clip)
-            audio_temp_files.append(temp_audio_file.name)
-            duracion = audio_clip.duration
-            
-            text_img = create_text_image(segmento)
-            txt_clip = (ImageClip(text_img)
-                    .set_start(tiempo_acumulado)
-                    .set_duration(duracion)
-                    .set_position('center'))
-            
-            video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
-            clips_finales.append(video_segment)
-            
-            tiempo_acumulado += duracion
-            time.sleep(0.2)
-        # Añadir clip de suscripción
-        subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
-        duracion_subscribe = 5
-
-        subscribe_clip = (ImageClip(subscribe_img)
+            try:
+                temp_audio_file = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                temp_audio_file.write(response.audio_content)
+                audio_clip = AudioFileClip(temp_audio_file.name)
+                clips_audio.append(audio_clip)
+                audio_temp_files.append(temp_audio_file.name)
+                duracion = audio_clip.duration
+                
+                text_img = create_text_image(segmento)
+                txt_clip = (ImageClip(text_img)
                         .set_start(tiempo_acumulado)
-                        .set_duration(duracion_subscribe)
+                        .set_duration(duracion)
                         .set_position('center'))
+                
+                video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+                clips_finales.append(video_segment)
+                
+                tiempo_acumulado += duracion
+                time.sleep(0.2)
+            except Exception as e:
+              logging.error(f"Error al crear archivo de audio temporal o clip: {str(e)}")
+              for clip in clips_audio:
+                  try:
+                      clip.close()
+                  except:
+                      pass
+              
+              for clip in clips_finales:
+                  try:
+                    clip.close()
+                  except:
+                    pass
+              if temp_audio_file:
+                try:
+                  os.close(os.open(temp_audio_file.name, os.O_RDONLY))
+                  os.remove(temp_audio_file.name)
+                except:
+                    pass
+              raise
+        # Añadir clip de suscripción
+        try:
+            subscribe_img = create_subscription_image(logo_url) # Usamos la función creada
+            duracion_subscribe = 5
 
-        clips_finales.append(subscribe_clip)
+            subscribe_clip = (ImageClip(subscribe_img)
+                            .set_start(tiempo_acumulado)
+                            .set_duration(duracion_subscribe)
+                            .set_position('center'))
+
+            clips_finales.append(subscribe_clip)
+        except Exception as e:
+            logging.error(f"Error al crear imagen de suscripcion: {str(e)}")
+            for clip in clips_audio:
+              try:
+                  clip.close()
+              except:
+                  pass
+            
+            for clip in clips_finales:
+                try:
+                    clip.close()
+                except:
+                    pass
+            raise
         
-        video_final = concatenate_videoclips(clips_finales, method="compose")
-        
+        try:
+            video_final = concatenate_videoclips(clips_finales, method="compose")
+        except Exception as e:
+          logging.error(f"Error al concatenar clips: {str(e)}")
+          for clip in clips_audio:
+              try:
+                  clip.close()
+              except:
+                  pass
+          
+          for clip in clips_finales:
+              try:
+                  clip.close()
+              except:
+                  pass
+          raise
         # Usar tempfile para el archivo de video
-        video_temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
-        video_final.write_videofile(
-            video_temp_file.name,
-            fps=24,
-            codec='libx264',
-            audio_codec='aac',
-            preset='ultrafast',
-            threads=4
-        )
+        try:
+           video_temp_file = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+           video_final.write_videofile(
+                video_temp_file.name,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                preset='ultrafast',
+                threads=4
+            )
         
-        video_final.close()
+           video_final.close()
         
-        for clip in clips_audio:
-          clip.close()
+           for clip in clips_audio:
+             clip.close()
         
-        for clip in clips_finales:
-          clip.close()
-        
-        return True, "Video generado exitosamente", video_temp_file.name, audio_temp_files
+           for clip in clips_finales:
+             clip.close()
+           
+           logging.info(f"Video creado correctamente en: {video_temp_file.name}")
+           
+           # Subir a Google Cloud Storage
+           try:
+             storage_client = storage.Client()
+             bucket = storage_client.bucket(bucket_name)
+             blob = bucket.blob(f"{nombre_salida}.mp4")
+             logging.info(f"Subiendo video a gs://{bucket_name}/{nombre_salida}.mp4")
+             blob.upload_from_filename(video_temp_file.name)
+             logging.info(f"Video subido correctamente a gs://{bucket_name}/{nombre_salida}.mp4")
+             blob.make_public()
+             url_video = blob.public_url
+             logging.info(f"URL del video: {url_video}")
+             return True, "Video generado exitosamente", url_video, audio_temp_files
+           except Exception as e:
+             logging.error(f"Error al subir a Cloud Storage: {str(e)}")
+             return False, f"Error al subir a Cloud Storage: {str(e)}", None, None
+        except Exception as e:
+           logging.error(f"Error al crear el video: {str(e)}")
+           for clip in clips_audio:
+                try:
+                   clip.close()
+                except:
+                    pass
+                
+           for clip in clips_finales:
+                try:
+                    clip.close()
+                except:
+                    pass
+           if video_temp_file:
+                try:
+                  os.close(os.open(video_temp_file.name, os.O_RDONLY))
+                  os.remove(video_temp_file.name)
+                except:
+                    pass
+           raise
         
     except Exception as e:
-        logging.error(f"Error: {str(e)}")
-        for clip in clips_audio:
-            try:
-                clip.close()
-            except:
-                pass
-                
-        for clip in clips_finales:
-            try:
-                clip.close()
-            except:
-                pass
-            
-        return False, str(e), None, None
+        logging.error(f"Error en la creación del video: {str(e)}")
+        return False, f"Error al generar video: {str(e)}", None, None
 
 def main():
     st.title("Creador de Videos Automático")
@@ -251,21 +327,28 @@ def main():
         try:
            os.close(os.open(st.session_state.video_path, os.O_RDONLY))
            os.remove(st.session_state.video_path)
-        except:
-           pass
-        st.session_state.video_path = None
+           st.session_state.video_path = None
+        except Exception as e:
+           logging.error(f"Error al eliminar video temporal al inicio: {str(e)}")
+           st.session_state.video_path = None
     if "audio_files" in st.session_state and st.session_state.audio_files is not None:
         for file_path in st.session_state.audio_files:
           try:
              os.close(os.open(file_path, os.O_RDONLY))
              os.remove(file_path)
-          except:
-             pass
+          except Exception as e:
+            logging.error(f"Error al eliminar audio temporal al inicio: {str(e)}")
+          
         st.session_state.audio_files = None
+    if "video_path" not in st.session_state:
+        st.session_state.video_path = None
+    if "audio_files" not in st.session_state:
+       st.session_state.audio_files = None
 
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
     voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    bucket_name = st.text_input("Nombre del Bucket de Cloud Storage", "datosblog-4095b.appspot.com")
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
@@ -274,25 +357,21 @@ def main():
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 nombre_salida_completo = f"{nombre_salida}.mp4"
-                success, message, video_path, audio_files = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
-                if success:
-                  st.success(message)
-                  st.video(video_path)
-                  with open(video_path, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                  st.session_state.video_path = video_path
-                  st.session_state.audio_files = audio_files
-                else:
-                  st.error(f"Error al generar video: {message}")
+                try:
+                  success, message, video_url, audio_files = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url, bucket_name)
+                  if success:
+                    st.success(message)
+                    st.video(video_url)
+                    st.markdown(f'<a href="{video_url}" target="_blank">Descargar video</a>', unsafe_allow_html=True)
+                    st.session_state.video_path = video_url
+                    st.session_state.audio_files = audio_files
+                  else:
+                    st.error(message)
+                except Exception as e:
+                  st.error(f"Ocurrió un error inesperado: {str(e)}")
 
         if st.session_state.get("video_path"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
-    # Inicializar session state
-    if "video_path" not in st.session_state:
-        st.session_state.video_path = None
-    if "audio_files" not in st.session_state:
-       st.session_state.audio_files = None
-
     main()
