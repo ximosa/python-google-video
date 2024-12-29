@@ -215,18 +215,19 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
-        
-        # Convertir el video a bytes
-        video_bytes = video_final.write_videofile(
-            None,
+        # Usamos BytesIO para guardar el video en memoria
+        video_buffer = BytesIO()
+        video_final.write_videofile(
+            video_buffer,
             fps=24,
             codec='libx264',
             audio_codec='aac',
             preset='ultrafast',
             threads=4,
             logger=None
-            )
-
+        )
+        video_buffer.seek(0) # Regresamos el puntero al inicio
+        video_bytes = video_buffer.read() # Leemos los bytes del buffer
         video_final.close()
         
         for clip in clips_audio:
