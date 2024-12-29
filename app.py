@@ -10,7 +10,6 @@ import numpy as np
 import tempfile
 import requests
 from io import BytesIO
-from io import BytesIO
 
 logging.basicConfig(level=logging.INFO)
 
@@ -114,7 +113,6 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
-    video_buffer = BytesIO()
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -212,8 +210,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
         video_final = concatenate_videoclips(clips_finales, method="compose")
         
         video_final.write_videofile(
-            video_buffer,
-            format='mp4',
+            nombre_salida,
             fps=24,
             codec='libx264',
             audio_codec='aac',
@@ -237,7 +234,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
                 pass
         
         logging.info("create_simple_video - Finaliza con exito")
-        return True, "Video generado exitosamente", video_buffer
+        return True, "Video generado exitosamente"
         
     except Exception as e:
         logging.error(f"Error en create_simple_video: {str(e)}")
@@ -260,7 +257,7 @@ def create_simple_video(texto, nombre_salida, voz, logo_url):
             except:
                 pass
         
-        return False, str(e), None
+        return False, str(e)
 
 
 def main():
@@ -277,27 +274,25 @@ def main():
         if st.button("Generar Video"):
             with st.spinner('Generando video...'):
                 logging.info("Generar Video - boton presionado")
-                success, message, video_buffer = create_simple_video(texto, nombre_salida, voz_seleccionada, logo_url)
+                nombre_salida_completo = f"/tmp/{nombre_salida}.mp4"
+                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url)
                 if success:
                   logging.info("Generar Video - video generado con exito")
                   st.success(message)
-                  
-                  video_buffer.seek(0)
-                  st.video(video_buffer)
-                  
-                  video_buffer.seek(0)
-                  st.download_button(label="Descargar video", data=video_buffer, file_name=f"{nombre_salida}.mp4")
-
-                  st.session_state.video_buffer = video_buffer
+                  st.video(nombre_salida_completo)
+                  with open(nombre_salida_completo, 'rb') as file:
+                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                    
+                  st.session_state.video_path = nombre_salida_completo
                 else:
                   logging.error(f"Generar Video - Error: {message}")
                   st.error(f"Error al generar video: {message}")
 
-        if st.session_state.get("video_buffer"):
+        if st.session_state.get("video_path"):
             st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     # Inicializar session state
-    if "video_buffer" not in st.session_state:
-        st.session_state.video_buffer = None
+    if "video_path" not in st.session_state:
+        st.session_state.video_path = None
     main()
