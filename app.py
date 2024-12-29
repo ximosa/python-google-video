@@ -288,7 +288,8 @@ def main():
                 if success:
                     logging.info("Generar Video - video generado con exito")
                     st.success("Video generado exitosamente")
-                    st.video(video_bytes)
+                    # Ahora usamos st.video directamente con los bytes
+                    st.video(video_bytes, format="video/mp4")
                     st.download_button(label="Descargar video", data=video_bytes, file_name=f"{nombre_salida}.mp4", mime="video/mp4")
                       
                 else:
